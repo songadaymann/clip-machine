@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f3eb">
+  <title>Clip Machine</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="wordmark" href="/" aria-label="Clip Machine home"><span class="mark" aria-hidden="true">↗</span> Clip Machine</a>
+    <div class="top-actions"><span class="local"><i></i> Local studio</span><button id="new-episode" class="quiet">New episode <span aria-hidden="true">+</span></button></div>
+  </header>
+  <main>
+    <section id="ingest" aria-labelledby="ingest-title">
+      <div class="intro"><h1 id="ingest-title">Find the parts<br>worth sharing.</h1></div>
+      <form id="episode-form">
+        <label class="file-drop" id="drop-zone" for="source-file">
+          <span class="upload-symbol" aria-hidden="true">↑</span><strong id="file-label">Choose an episode</strong>
+          <span>Audio or video · stays on this computer</span>
+          <input id="source-file" type="file" accept="audio/*,video/*,.mkv" required>
+        </label>
+        <label class="field direction">What are you looking for?<textarea id="direction" rows="2" maxlength="4000" placeholder="A surprising idea, a good story, a moment that made us laugh…"></textarea></label>
+        <div class="form-row">
+          <label class="field">Analysis<select id="provider"><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label>
+          <label class="field">Clips<input id="count" type="number" min="1" max="30" value="6" required></label>
+          <label class="field">Format<select id="layout"><option value="portrait">Vertical · 9:16</option><option value="original">Original</option></select></label>
+        </div>
+        <details class="options"><summary>Duration & transcript</summary>
+          <div class="form-row">
+            <label class="field">Minimum seconds<input id="minimum" type="number" min="3" max="300" value="20" required></label>
+            <label class="field">Maximum seconds<input id="maximum" type="number" min="3" max="300" value="90" required></label>
+          </div>
+          <label class="field">Transcript JSON <span class="optional">(optional)</span><input id="transcript-file" type="file" accept=".json,application/json"></label>
+        </details>
+        <p id="transcription-note" class="note"></p>
+        <p class="note">Vertical video uses a center crop. Analysis sends transcript text to your selected provider.</p>
+        <div class="submit-row"><button id="analyze" class="primary" type="submit">Find clips <span aria-hidden="true">↗</span></button><button id="demo" type="button" class="quiet">Try a sample episode</button></div>
+      </form>
+      <section id="history" aria-labelledby="history-title"><h2 id="history-title">Recent episodes</h2><div id="history-list"></div></section>
+    </section>
+    <section id="workbench" hidden aria-label="Episode clips">
+      <div class="episode-heading"><div><h1 id="episode-name"></h1><p id="episode-status" role="status" aria-live="polite"></p></div><div class="episode-actions"><button id="retry" hidden>Retry analysis</button><button id="export-all" class="primary">Export all <span aria-hidden="true">↓</span></button></div></div>
+      <p id="demo-note" class="notice" hidden>Synthetic demo: test-pattern video, tones, sample text and fixture scores. No AI analysis was run.</p>
+      <div id="processing" hidden><div class="processing-line"></div><p id="processing-message"></p><p class="note">You can leave this tab open while the local engine works.</p></div>
+      <div id="review" class="review" hidden>
+        <aside class="clip-list"><div class="list-heading"><h2>Selected moments</h2><span id="clip-count"></span></div><p class="note">Ranked for sharing · 0–99</p><div id="clips"></div></aside>
+        <div class="editor">
+          <div class="preview-heading"><span id="preview-label">Source preview</span><button class="quiet" id="preview-toggle" hidden>View source</button></div>
+          <div class="preview" id="preview"><video id="player" controls playsinline preload="metadata"></video><audio id="audio-player" controls preload="metadata" hidden></audio></div>
+          <div class="clip-heading"><h2 id="clip-title"></h2><span id="clip-time"></span></div>
+          <p id="clip-reason"></p>
+          <div id="scores" class="scores"></div>
+          <p class="note" id="context-note"></p>
+          <p class="note" id="edited-note" hidden>Edited cut. The score and context check apply to the original suggestion.</p>
+          <form id="trim-form" class="trim-form"><label class="field">Start<input id="trim-start" type="text" inputmode="decimal" aria-label="Clip start in minutes and seconds" required></label><label class="field">End<input id="trim-end" type="text" inputmode="decimal" aria-label="Clip end in minutes and seconds" required></label><button type="submit">Save trim</button><button type="button" class="quiet" id="play-clip">Play clip <span aria-hidden="true">▶</span></button></form>
+          <div class="clip-actions"><button id="approve">Keep clip</button><button id="reject" class="quiet">Reject</button><button id="export-clip" class="primary">Export clip ↓</button><span id="downloads"></span></div>
+          <div class="episode-timeline"><div class="list-heading"><h2>In the episode</h2><span id="episode-duration"></span></div><svg id="waveform" viewBox="0 0 900 64" role="img" aria-label="Audio energy and selected clip in the episode" tabindex="0"></svg></div>
+          <details id="transcript-panel" class="transcript-panel"><summary>Transcript & boundaries</summary><div id="transcript"></div></details>
+        </div>
+      </div>
+    </section>
+    <p id="error" class="error" role="alert" hidden></p>
+  </main>
+  <footer><span>Recording → Editing → <strong>Clips</strong> → Sharing</span><a href="https://github.com/songadaymann/clip-machine" target="_blank" rel="noreferrer">Open source ↗</a></footer>
+</body>
+</html>

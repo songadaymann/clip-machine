@@ -1,0 +1,59 @@
+# Secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.p8
+*.key
+secrets/
+.secrets/
+*oauth*token*.json
+service-account*.json
+
+# Private material (see ASSETS.md "Not included")
+private-assets/
+data/
+logs/
+
+# Generated
+node_modules/
+dist/
+build/
+out/
+output/
+test-results/
+playwright-report/
+.wrangler/
+.vercel/
+.next/
+.turbo/
+cache/
+coverage/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.tsbuildinfo
+
+# Machine
+.DS_Store
+*.log
+
+# Imported episodes and build metadata
+*.egg-info/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.mp3
+*.wav
+*.m4a
+*.flac
+*.ogg
+*.opus
+*.aac
+*.aiff
+*.aif
+*.m4v

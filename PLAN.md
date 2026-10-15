@@ -1,0 +1,18 @@
+# Clip Machine plan
+
+Build a replaceable clip engine for a future recording → editing → sharing studio.
+The surrounding app is evolving; keep its storage, UI and publishing independent.
+
+- [x] Read the supplied research and inspect local tools.
+- [x] Confirm integration direction: modular studio component.
+- [x] Establish project and documented module contracts.
+- [x] Implement media inspection, timestamped transcript import/local transcription,
+      audio-energy features, model-driven selection, validation and stable ranking.
+- [x] Implement accurate exports, captions, vertical layout and editable boundaries.
+- [x] Add a thin local review interface and reproducible demo.
+- [x] Verify the pipeline with synthetic media and tests; inspect desktop/mobile UI.
+- [ ] Run open-source checks, commit and publish the public repository.
+
+First slice: local, transcript-led, contiguous clips, no social publishing.
+Later: diarization, active-speaker tracking, richer visual/audio event features,
+reference-backed trends, cloud workers and integration with the studio's editor.
