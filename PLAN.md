@@ -11,7 +11,7 @@ The surrounding app is evolving; keep its storage, UI and publishing independent
 - [x] Implement accurate exports, captions, vertical layout and editable boundaries.
 - [x] Add a thin local review interface and reproducible demo.
 - [x] Verify the pipeline with synthetic media and tests; inspect desktop/mobile UI.
-- [ ] Run open-source checks, commit and publish the public repository.
+- [x] Run open-source checks, commit and publish the public repository.
 
 First slice: local, transcript-led, contiguous clips, no social publishing.
 Later: diarization, active-speaker tracking, richer visual/audio event features,

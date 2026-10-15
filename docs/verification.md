@@ -20,8 +20,13 @@
 - Browser review verified clip selection, start/end edits, keeping a clip,
   export invalidation and revision-2 rendering. Captioned playback and download
   links were present, with no browser console errors observed.
+- Browser file import also completed raw audio upload → local transcription →
+  live Codex selection → playable 720×1280 captioned waveform export, preserving
+  the original display filename.
 - At a 390-pixel viewport, the review screen fits without document overflow.
   Rendered interface type sizes remain within the three-size design limit.
+- The public repository's Linux GitHub Actions run passed. GitHub secret scanning
+  and push protection are enabled; the open-source checker found no blockers.
 
 The sample episode uses explicit fixture rankings, not AI predictions. Generated
 speech trials test the wiring; they do not establish selection quality on real
