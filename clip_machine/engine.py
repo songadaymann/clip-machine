@@ -47,7 +47,8 @@ def analyze_job(store, job_id, provider=None, transcriber=None):
             if transcriber is None:
                 imported = folder / "input-transcript.json"
                 transcriber = ImportedTranscript(imported) if imported.exists() else MLXTranscriber(
-                    job["options"].get("transcription_model", "mlx-community/whisper-large-v3-turbo"))
+                    job["options"].get("transcription_model", "mlx-community/whisper-large-v3-turbo"),
+                    raw_cache=folder / "asr-cache.json")
             transcript = transcriber.transcribe(audio, job["media"]["duration"])
             write_json(transcript_file, transcript)
         store.event(job, "analyzing", "Measuring delivery against speech baselines")

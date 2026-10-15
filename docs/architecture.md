@@ -78,6 +78,15 @@ The canonical transcript has stable `s000000` IDs, `schema_version: 1`, speaker,
 text, start/end seconds and optional word timings. All times refer to the source
 episode, never to a generated clip. Segments with word times are grouped into
 sentences or bounded phrases. Imported segment-only text remains segment-level.
+Empty decoder entries (including instantaneous entries with equal start/end
+times) are omitted before validating speech timestamps. Content-bearing entries
+must still have valid timestamps. MLX's raw result is saved privately before
+normalization, keyed by the model and decoded audio's size/mtime, so a validation
+failure can be retried without repeating transcription.
+Precise word alignment may extend up to half a second beyond coarse segment
+edges; those word times are preserved instead of being cut to the coarse edges.
+They must still fit the source timeline (with a small rounding allowance at the
+end, clamped to the media duration). Larger discrepancies are rejected.
 For multi-track files, ingestion and rendering use the same default-marked audio
 stream, or the first audio stream if none is marked default. There is no automatic
 multi-track mix; the recording/editor stage should supply its intended episode mix.

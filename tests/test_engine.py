@@ -18,7 +18,7 @@ from clip_machine.render import caption_cues, write_captions
 from clip_machine.selection import deduplicate, select_clips, validate_options
 from clip_machine.server import ReviewServer
 from clip_machine.storage import JobStore, write_json
-from clip_machine.transcript import chunks, normalize
+from clip_machine.transcript import MLXTranscriber, chunks, normalize
 
 
 class FixtureProvider:
@@ -51,6 +51,68 @@ def transcript():
 
 
 class LogicTests(unittest.TestCase):
+    def test_empty_instantaneous_decoder_segments_do_not_abort_real_speech(self):
+        raw = transcript()
+        raw["segments"].insert(1, {"start": 3, "end": 3, "text": "", "words": []})
+        raw["segments"].append({"start": 12, "end": 12, "text": "  ", "words": []})
+        result = normalize(raw, 12)
+        self.assertEqual(len(result["segments"]), 3)
+        self.assertEqual([s["id"] for s in result["segments"]], ["s000000", "s000001", "s000002"])
+        self.assertEqual(result["segments"][1]["text"], "And here is the payoff.")
+
+    def test_content_with_reversed_or_zero_length_timestamps_still_fails(self):
+        for start, end in ((3, 3), (3, 2), (11, 20)):
+            raw = transcript()
+            raw["segments"][0].update(start=start, end=end)
+            with self.assertRaises(ValueError):
+                normalize(raw, 12)
+
+    def test_precise_word_times_are_preserved_across_coarse_segment_edges(self):
+        raw = {"segments": [
+            {"start": 3.58, "end": 4.94, "text": "A complete thought.", "words": [
+                {"start": 3.23, "end": 3.8, "word": "A"},
+                {"start": 3.8, "end": 4.5, "word": "complete"},
+                {"start": 4.5, "end": 5.21, "word": "thought."}]}]}
+        segment = normalize(raw, 12)["segments"][0]
+        self.assertEqual((segment["start"], segment["end"]), (3.23, 5.21))
+        self.assertEqual(segment["words"][0]["start"], 3.23)
+        self.assertEqual(segment["words"][-1]["end"], 5.21)
+
+    def test_word_boundary_drift_is_bounded_and_episode_end_rounding_is_clamped(self):
+        raw = {"segments": [{"start": 1, "end": 3, "text": "A thought.", "words": [
+            {"start": .49, "end": 2, "word": "A"}, {"start": 2, "end": 3, "word": "thought."}]}]}
+        with self.assertRaises(ValueError):
+            normalize(raw, 12)
+        raw["segments"][0].update(start=10, end=12.2)
+        raw["segments"][0]["words"] = [{"start": 10, "end": 12.2, "word": "Ending."}]
+        result = normalize(raw, 12)["segments"][0]
+        self.assertEqual(result["end"], 12)
+        self.assertEqual(result["words"][0]["end"], 12)
+
+    def test_asr_cache_survives_validation_failure_and_checks_audio_and_model(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        raw = transcript()
+        raw["segments"][0]["end"] = 20
+        transcribe = Mock(return_value=raw)
+        with tempfile.TemporaryDirectory() as directory:
+            audio, cache = Path(directory) / "audio.wav", Path(directory) / "asr-cache.json"
+            audio.write_bytes(b"test audio")
+            with patch.dict("sys.modules", {"mlx_whisper": SimpleNamespace(transcribe=transcribe)}):
+                runner = MLXTranscriber("test-model", raw_cache=cache)
+                for _ in range(2):
+                    with self.assertRaises(ValueError):
+                        runner.transcribe(audio, 12)
+                self.assertTrue(cache.exists())
+                self.assertEqual(transcribe.call_count, 1)
+                # A changed audio file or model must not reuse stale timings.
+                audio.write_bytes(b"different audio")
+                with self.assertRaises(ValueError):
+                    runner.transcribe(audio, 12)
+                with self.assertRaises(ValueError):
+                    MLXTranscriber("different-model", raw_cache=cache).transcribe(audio, 12)
+                self.assertEqual(transcribe.call_count, 3)
+
     def test_import_rejects_nonfinite_and_out_of_range_times(self):
         for bad in (float("nan"), float("inf"), -1, True, 15):
             raw = transcript()
@@ -188,6 +250,21 @@ class PipelineTests(unittest.TestCase):
         edited = edit_clip(self.store, job["id"], c["id"], 1.5, 5.5)
         self.assertIsNone(edited["clips"][0]["export"])
         self.assertEqual(len(edited["feedback"]), 2)
+
+    def test_engine_saves_raw_asr_and_filters_empty_decoder_entries(self):
+        from types import SimpleNamespace
+        raw = transcript()
+        raw["segments"].insert(0, {"start": 0, "end": 0, "text": "", "words": []})
+        raw["segments"].append({"start": 12, "end": 12, "text": "", "words": []})
+        job = create_job(self.store, self.source, {"min_seconds": 3, "max_seconds": 12})
+        with patch.dict("sys.modules", {"mlx_whisper": SimpleNamespace(transcribe=lambda *a, **kw: raw)}):
+            result = analyze_job(self.store, job["id"], FixtureProvider())
+        self.assertEqual(result["status"], "ready")
+        self.assertEqual(len(result["clips"]), 1)
+        cache = json.loads((self.store.folder(job["id"]) / "asr-cache.json").read_text())
+        self.assertEqual(len(cache["result"]["segments"]), 5)
+        canonical = json.loads((self.store.folder(job["id"]) / "transcript.json").read_text())
+        self.assertEqual(len(canonical["segments"]), 3)
 
     def test_portrait_is_720_by_1280(self):
         job = self.analyze("portrait")

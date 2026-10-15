@@ -6,6 +6,12 @@ import math
 import re
 from pathlib import Path
 
+from .storage import write_json
+
+# Whisper's coarse segment boundaries can differ slightly from forced word
+# alignment. Keep the more precise word times, allowing bounded edge drift.
+WORD_BOUNDARY_TOLERANCE = .5
+
 
 def number(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
@@ -18,10 +24,16 @@ def normalize(raw, duration):
         raise ValueError("Transcript JSON needs a segments array (Whisper/WhisperX format)")
     normalized = []
     for segment in raw["segments"]:
+        text = str(segment.get("text", "")).strip()
+        # MLX Whisper clears the text/words of instantaneous decoder segments,
+        # but leaves their start == end records in the returned segments list.
+        # They contain no speech to align and must be filtered before validating
+        # the timestamps of actual transcript content.
+        if not text and not segment.get("words"):
+            continue
         start, end = number(segment["start"]), number(segment["end"])
         if not (0 <= start < end <= duration + .25):
             raise ValueError("Transcript timestamps extend beyond the episode or are reversed")
-        text = str(segment.get("text", "")).strip()
         speaker = segment.get("speaker")
         if speaker is not None and not isinstance(speaker, str):
             raise ValueError("Speaker IDs must be strings")
@@ -33,9 +45,10 @@ def normalize(raw, duration):
                 words = []
                 break
             ws, we = number(word["start"]), number(word["end"])
-            if not (start - .1 <= ws <= we <= end + .1):
-                raise ValueError("Word timestamps must be inside their segment")
-            words.append({"start": max(start, ws), "end": min(end, we),
+            if not (0 <= ws <= we <= duration + .25 and
+                    start - WORD_BOUNDARY_TOLERANCE <= ws <= we <= end + WORD_BOUNDARY_TOLERANCE):
+                raise ValueError("Word timestamps must be within the episode and close to their segment")
+            words.append({"start": min(duration, ws), "end": min(duration, we),
                           "text": str(word.get("word", word.get("text", ""))).strip()})
         if not text and not words:
             continue
@@ -80,16 +93,27 @@ class ImportedTranscript:
 class MLXTranscriber:
     name = "mlx-whisper"
 
-    def __init__(self, model="mlx-community/whisper-large-v3-turbo"):
+    def __init__(self, model="mlx-community/whisper-large-v3-turbo", raw_cache=None):
         self.model = model
+        self.raw_cache = Path(raw_cache) if raw_cache is not None else None
 
     def transcribe(self, audio, duration):
+        stat = Path(audio).stat()
+        signature = {"model": self.model, "audio_size": stat.st_size, "audio_mtime_ns": stat.st_mtime_ns}
+        if self.raw_cache is not None and self.raw_cache.exists():
+            cached = json.loads(self.raw_cache.read_text())
+            if cached.get("signature") == signature:
+                return normalize(cached["result"], duration)
         try:
             import mlx_whisper
         except ImportError:
             raise RuntimeError("Install mlx-whisper in this Python environment (Apple Silicon), "
                                "or import a timestamped transcript JSON") from None
         raw = mlx_whisper.transcribe(str(audio), path_or_hf_repo=self.model, word_timestamps=True)
+        # Preserve expensive ASR output even if canonical validation fails. A
+        # retry after a normalizer fix can reuse it without another model run.
+        if self.raw_cache is not None:
+            write_json(self.raw_cache, {"signature": signature, "result": raw})
         return normalize(raw, duration)
 
 
