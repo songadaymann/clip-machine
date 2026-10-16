@@ -16,3 +16,10 @@ The surrounding app is evolving; keep its storage, UI and publishing independent
 First slice: local, transcript-led, contiguous clips, no social publishing.
 Later: diarization, active-speaker tracking, richer visual/audio event features,
 reference-backed trends, cloud workers and integration with the studio's editor.
+
+## Recording timestamp repair
+
+- [x] Reproduce the failed real-recording transcription and preserve raw ASR output.
+- [x] Fix the invalid-timestamp case with regression coverage and retry caching.
+- [x] Finish the existing clip job on the restarted local app.
+- [x] Verify outputs, run repository checks, and publish the fix.

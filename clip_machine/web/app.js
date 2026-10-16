@@ -64,7 +64,7 @@ function renderJob(force = false) {
   $('export-all').disabled = busy() || !job.clips.some(c => c.decision !== 'rejected');
   $('retry').hidden = job.status !== 'failed' || Boolean(job.clips.length);
   $('retry').disabled = busy();
-  if (job.error) showError(new Error(job.error));
+  if (job.error && !busy()) showError(new Error(job.error)); else clearError();
   if (!job.clips.length) return;
   if (!clip()) { state.selected = job.clips[0].id; force = true; }
   $('clip-count').textContent = String(job.clips.length);

@@ -31,3 +31,24 @@
 The sample episode uses explicit fixture rankings, not AI predictions. Generated
 speech trials test the wiring; they do not establish selection quality on real
 podcasts. Real episode evaluation with both studio partners is still needed.
+
+## Timestamp regression, 2026-10-15
+
+A real recording reproduced the validation failure: nine empty instantaneous
+decoder entries and six word alignments that crossed their coarse segment edges
+by less than half a second. The normalizer now skips entries without speech and
+preserves those bounded word alignments. It still rejects invalid speech times
+and larger discrepancies. The full recording normalized successfully with all
+canonical segments inside the source duration.
+
+Raw ASR is now cached privately before validation, with audio/model identity
+checks, so normalization failures do not force another transcription. All 22
+tests and the Linux CI run pass, including coverage for empty entries, coarse
+boundary drift, source bounds, cache invalidation and engine integration.
+
+The existing job resumed from its saved upload/transcript, recovered from one
+transient provider connection failure using cached analysis, and completed all
+20 exports. All exported files were probed: each is 720×1280, matches its selected
+duration within the renderer tolerance, and has SRT/VTT/ASS caption sidecars.
+Browser playback loaded an exported clip without a media error. Retry handling
+also clears a stale error banner once a job resumes.
