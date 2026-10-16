@@ -128,9 +128,15 @@ risking cutting off the player avatar. The FULL game region will be preserved.
 For camera feeds, include the head/shoulders, not a tiny tight face-only rectangle.
 Put a tighter protected face rectangle in subject when clear. For a game, subject
 may be the visible avatar; use [] if it cannot be reliably located. Never invent it.
-Include all distinct participant feeds even when a person is not speaking. Ignore
-nested self-preview thumbnails/duplicate screenshare previews and prefer the largest
-original camera feed. Do not identify or name people; use anonymous feed IDs/labels
+Include all distinct participant feeds even when a person is not speaking.
+An embedded camera INSIDE a stream/screenshare still counts when it is the only
+view of that participant. Never discard a camera merely because it is small or
+nested. Inspect the whole image, including small call windows inside content.
+Exclude only redundant copies of a camera feed already represented elsewhere:
+match duplicated video composition/room background, not facial identity. A small
+self-view showing the same room/camera scene as a larger feed is not an additional
+participant. Prefer the largest usable copy of that feed. Do not identify or name
+people; use anonymous feed IDs/labels
 (person_1 etc.). Keep feed IDs consistent across frames using camera position/layout,
 not biometric identity. Do not infer speaking from a still face. Prefer wider bounds
 when uncertain. Main content uses kind gameplay or content; choose at most ONE.
