@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 import os
 import subprocess
@@ -47,7 +48,7 @@ class CLIProvider:
         self.name = name
         self.model = model
 
-    def complete(self, prompt, schema):
+    def complete(self, prompt, schema, images=None):
         # Never extract OAuth tokens or translate subscription credentials into API
         # calls. Do not silently switch to separately billed API authentication.
         env = {k: v for k, v in os.environ.items() if k not in
@@ -69,8 +70,24 @@ class CLIProvider:
             if self.model:
                 command.extend(["--model", self.model])
             full_prompt = INSTRUCTIONS + "\nJSON schema:\n" + json.dumps(schema) + "\n" + prompt
+            message = full_prompt.encode()
+            if images:
+                if len(images) > 8:
+                    raise ValueError("Use at most eight sampled images per visual request")
+                if self.name == "codex":
+                    for path in images:
+                        command.extend(["--image", str(Path(path).resolve())])
+                    # End the variadic image argument and explicitly read stdin.
+                    command.extend(["--", "-"])
+                else:
+                    command.extend(["--input-format", "stream-json"])
+                    content = [{"type": "text", "text": full_prompt}]
+                    for path in images:
+                        content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                            "data": base64.b64encode(Path(path).read_bytes()).decode()}})
+                    message = (json.dumps({"type": "user", "message": {"role": "user", "content": content}}) + "\n").encode()
             try:
-                response = subprocess.run(command, input=full_prompt.encode(), cwd=directory,
+                response = subprocess.run(command, input=message, cwd=directory,
                                           env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                           timeout=600)
             except FileNotFoundError:
@@ -102,13 +119,18 @@ class CachedProvider:
         self.provider, self.folder = provider, Path(folder)
         self.name = provider.name
 
-    def complete(self, prompt, schema):
+    def complete(self, prompt, schema, images=None):
         payload = json.dumps([self.name, getattr(self.provider, "model", None), prompt, schema], sort_keys=True)
+        image_hashes = [hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in images or []]
+        if image_hashes:
+            payload += json.dumps(image_hashes)
         digest = hashlib.sha256(payload.encode()).hexdigest()
         path = self.folder / (digest + ".json")
         if path.exists():
             return json.loads(path.read_text())["response"]
-        result = self.provider.complete(prompt, schema)
+        result = (self.provider.complete(prompt, schema, images=images) if images
+                  else self.provider.complete(prompt, schema))
         write_json(path, {"provider": self.name, "model": getattr(self.provider, "model", None),
-                          "prompt": prompt, "schema": schema, "response": result})
+                          "prompt": prompt, "schema": schema, "response": result,
+                          "image_hashes": image_hashes})
         return result

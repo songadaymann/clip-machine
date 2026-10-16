@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from .demo import DemoProvider, create_demo
-from .engine import analyze_job, create_job, edit_clip, export_job
+from .engine import analyze_job, create_job, edit_clip, export_job, reframe_job, save_framing
 from .media import capabilities
 from .storage import verify_source
 
@@ -99,7 +99,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path in ("/", "/app.js", "/style.css"):
                 self.file(WEB / ("index.html" if path == "/" else path[1:]))
             else:
-                match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})(?:/(transcript|energy|source|files/[^/]+))?", path)
+                match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})(?:/(transcript|energy|source|files/[^/]+|framing/[a-f0-9]+-r[0-9]+/[a-z0-9-]+\.jpg))?", path)
                 if not match:
                     self.json({"error": "Not found"}, 404)
                     return
@@ -111,6 +111,12 @@ class Handler(BaseHTTPRequestHandler):
                     self.json(json.loads((self.server.store.folder(identity) / (action + ".json")).read_text()))
                 elif action == "source":
                     self.file(verify_source(job))
+                elif action.startswith("framing/"):
+                    allowed = {s["file"] for c in job["clips"] for s in c.get("framing", {}).get("samples", [])}
+                    allowed.update(c["framing"]["preview"] for c in job["clips"] if c.get("framing", {}).get("preview"))
+                    if action not in allowed:
+                        raise FileNotFoundError()
+                    self.file(self.server.store.folder(identity) / action)
                 else:
                     name = action.split("/", 1)[1]
                     allowed = {value for clip in job["clips"] if clip.get("export")
@@ -154,11 +160,11 @@ class Handler(BaseHTTPRequestHandler):
                 source = uploads / self.upload_name(body["source"])
                 transcript = uploads / self.upload_name(body["transcript"]) if body.get("transcript") else None
                 options = body.get("options", {})
-                if not isinstance(options, dict) or set(options) - {"provider", "model", "direction", "count", "min_seconds", "max_seconds", "layout", "burn_captions", "auto_render"}:
+                if not isinstance(options, dict) or set(options) - {"provider", "model", "direction", "count", "min_seconds", "max_seconds", "layout", "burn_captions", "auto_render", "smart_framing"}:
                     raise ValueError("Invalid processing options")
                 if options.get("provider", "codex") not in ("codex", "claude"):
                     raise ValueError("Choose Codex or Claude")
-                for key in ("burn_captions", "auto_render"):
+                for key in ("burn_captions", "auto_render", "smart_framing"):
                     if key in options and type(options[key]) is not bool:
                         raise ValueError(key + " must be true or false")
                 job = create_job(store, source, options, transcript)
@@ -168,7 +174,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.server.submit(job["id"], lambda: analyze_job(store, job["id"]))
                 self.json(self.job(job["id"]), 202)
             else:
-                match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})/(edit|export|retry)", parsed.path)
+                match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})/(edit|export|retry|frame|framing)", parsed.path)
                 if not match:
                     self.json({"error": "Not found"}, 404)
                     return
@@ -179,6 +185,11 @@ class Handler(BaseHTTPRequestHandler):
                     if action == "edit":
                         result = edit_clip(store, identity, body["clip_id"], body.get("start"), body.get("end"), body.get("decision"))
                         self.json(result)
+                    elif action == "framing":
+                        self.json(save_framing(store, identity, body["clip_id"], body.get("regions", []), body.get("policy", "auto")))
+                    elif action == "frame":
+                        self.server.submit(identity, lambda: reframe_job(store, identity, body.get("clip_id"), body.get("policy", "auto")))
+                        self.json(self.job(identity), 202)
                     elif action == "export":
                         job = store.load(identity)
                         if not job["clips"]:

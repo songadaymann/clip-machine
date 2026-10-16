@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = {config: null, job: null, selected: null, transcript: null, energy: null, previewExport: true, player: null, playingClip: false, loadingAssets: null};
+const state = {config: null, job: null, selected: null, transcript: null, energy: null, previewExport: true, player: null, playingClip: false, loadingAssets: null, framingKey: null, framingScene: 0};
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
 const time = seconds => { const whole = Math.floor(seconds); const mins = Math.floor(whole / 60); const secs = whole % 60; return `${mins}:${String(secs).padStart(2, '0')}`; };
 const preciseTime = seconds => `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(2).padStart(5, '0')}`;
@@ -61,6 +61,8 @@ function renderJob(force = false) {
   $('processing').hidden = !processing;
   $('processing-message').textContent = job.message;
   $('review').hidden = !job.clips.length;
+  $('frame-all').hidden = !job.media?.has_video || job.options.provider === 'demo-fixture';
+  $('frame-all').disabled = busy();
   $('export-all').disabled = busy() || !job.clips.some(c => c.decision !== 'rejected');
   $('retry').hidden = job.status !== 'failed' || Boolean(job.clips.length);
   $('retry').disabled = busy();
@@ -113,6 +115,7 @@ function renderClip(force = false) {
     }
   }
   if ((changed || force) && !useExport) seek(c.start);
+  renderFraming(force);
   if (force) { renderTranscript(); drawWaveform(); }
 }
 function seek(seconds, play = false) {
@@ -157,7 +160,7 @@ $('episode-form').addEventListener('submit', event => { event.preventDefault(); 
   try {
     const source = await upload(file), transcriptId = transcript ? await upload(transcript) : null;
     const job = await api('/api/jobs', {source, source_name: file.name, transcript: transcriptId, options: {provider: $('provider').value, direction: $('direction').value,
-      count: Number($('count').value), min_seconds: Number($('minimum').value), max_seconds: Number($('maximum').value), layout: $('layout').value, auto_render: true, burn_captions: true}});
+      count: Number($('count').value), min_seconds: Number($('minimum').value), max_seconds: Number($('maximum').value), layout: $('layout').value, auto_render: true, burn_captions: true, smart_framing: true}});
     await openJob(job.id);
   } finally { $('analyze').disabled = false; $('analyze').textContent = 'Find clips ↗'; }
 }); });
@@ -178,6 +181,7 @@ $('approve').addEventListener('click', () => safely(() => mutate('edit', {clip_i
 $('reject').addEventListener('click', () => safely(() => mutate('edit', {clip_id: state.selected, decision: clip().decision === 'rejected' ? 'unreviewed' : 'rejected'})));
 $('export-clip').addEventListener('click', () => safely(() => mutate('export', {clip_id: state.selected})));
 $('export-all').addEventListener('click', () => safely(() => mutate('export', {})));
+$('frame-all').addEventListener('click', () => safely(() => mutate('frame', {})));
 $('retry').addEventListener('click', () => safely(() => mutate('retry', {})));
 $('transcript').addEventListener('click', event => { const target = event.target.closest('button'); if (!target) return; if (target.dataset.seek) sourceAt(Number(target.dataset.seek), true); if (target.dataset.boundary) { $(target.dataset.boundary === 'start' ? 'trim-start' : 'trim-end').value = preciseTime(Number(target.dataset.value)); $('trim-form').scrollIntoView({behavior: 'smooth', block: 'center'}); } });
 $('waveform').addEventListener('click', event => { const box = $('waveform').getBoundingClientRect(); sourceAt((event.clientX-box.left)/box.width*state.job.media.duration); });
@@ -203,3 +207,48 @@ safely(async () => {
   await history();
   poll();
 });
+
+
+const layoutNames = {gameplay_people: 'Game + people', two_people: 'Both people', group: 'Everyone', speaker: 'Speaker focus', full_frame: 'Full source'};
+const framingAsset = path => `/api/jobs/${state.job.id}/${path}`;
+function renderFraming(force = false) {
+  const c = clip(), plan = c?.framing;
+  $('framing-panel').hidden = !state.job.media.has_video || state.job.options.provider === 'demo-fixture';
+  $('frame-clip').disabled = busy();
+  $('framing-policy').disabled = busy();
+  for (const input of $('regions-form').querySelectorAll('input,select,button')) input.disabled = busy();
+  const key = `${state.job.id}:${c.id}:${c.revision}`;
+  if (key === state.framingKey && !force) return;
+  state.framingKey = key; state.framingScene = 0;
+  $('framing-policy').value = plan?.policy || 'auto';
+  $('framing-note').textContent = plan ? `${plan.needs_review ? 'Review framing: ' : ''}${plan.note} ${[...new Set(plan.scenes.map(s => layoutNames[s.layout]))].join(' → ')}.${plan.evidence?.speaker_timeline?.length ? ' Speaker focus uses estimated mouth movement; review the cuts.' : ''}` : 'Analyze the source to keep both people visible, preserve gameplay, or follow a larger conversation. Uncertain views keep the full source.';
+  $('framing-proof').hidden = !plan?.samples?.length;
+  $('regions-form').hidden = !plan;
+  if (!plan) return;
+  $('framing-scene').innerHTML = plan.scenes.map((s, i) => `<option value="${i}">${time(s.start)}–${time(s.end)} · ${layoutNames[s.layout]}</option>`).join('');
+  if (plan.preview) $('framing-preview').src = framingAsset(plan.preview); else $('framing-preview').removeAttribute('src');
+  showRegionScene();
+}
+function showRegionScene() {
+  const plan = clip().framing, scene = plan.scenes[state.framingScene];
+  const sample = plan.samples?.reduce((best, s) => Math.abs(s.time-scene.start) < Math.abs(best.time-scene.start) ? s : best, plan.samples[0]);
+  if (sample) $('framing-source').src = framingAsset(sample.file);
+  $('region-rows').innerHTML = scene.regions.map(r => regionRow(r)).join('');
+  for (const input of $('regions-form').querySelectorAll('input,select,button')) input.disabled = busy();
+  drawRegions();
+}
+function regionRow(r) {
+  return `<tr data-region="${escape(r.id)}"><td><input aria-label="Region label" class="region-label" value="${escape(r.label)}" maxlength="100"></td><td><select aria-label="Region type" class="region-kind">${['person','gameplay','content'].map(k => `<option ${r.kind === k ? 'selected' : ''}>${k}</option>`).join('')}</select></td>${r.rect.map((v, i) => `<td><input aria-label="${['Left','Top','Width','Height'][i]} percent" class="region-coordinate" type="number" min="${i > 1 ? '.1' : '0'}" max="100" step=".1" value="${(v*100).toFixed(1)}" required></td>`).join('')}<td><button type="button" data-remove-region aria-label="Remove region">×</button></td></tr>`;
+}
+function readRegions() {
+  return [...$('region-rows').querySelectorAll('tr')].map(row => ({id: row.dataset.region, label: row.querySelector('.region-label').value, kind: row.querySelector('.region-kind').value, rect: [...row.querySelectorAll('.region-coordinate')].map(input => Number(input.value)/100), subject: null}));
+}
+function drawRegions() {
+  $('region-overlay').innerHTML = readRegions().map((r, i) => `<g class="region-${r.kind}"><rect x="${r.rect[0]*1000}" y="${r.rect[1]*1000}" width="${r.rect[2]*1000}" height="${r.rect[3]*1000}"/><text x="${r.rect[0]*1000+5}" y="${r.rect[1]*1000+40}">${i+1} ${escape(r.label)}</text></g>`).join('');
+}
+$('framing-scene').addEventListener('change', () => { state.framingScene = Number($('framing-scene').value); showRegionScene(); });
+$('frame-clip').addEventListener('click', () => safely(() => mutate('frame', {clip_id: state.selected, policy: $('framing-policy').value})));
+$('region-rows').addEventListener('input', drawRegions);
+$('region-rows').addEventListener('click', event => { if (event.target.closest('[data-remove-region]')) { event.target.closest('tr').remove(); drawRegions(); } });
+$('add-region').addEventListener('click', () => { if (readRegions().length >= 8) return showError(new Error('Use up to eight regions.')); $('region-rows').insertAdjacentHTML('beforeend', regionRow({id: `region_${Date.now()}`, label: 'Person', kind: 'person', rect: [.1,.1,.3,.4]})); drawRegions(); });
+$('regions-form').addEventListener('submit', event => { event.preventDefault(); safely(async () => { await mutate('framing', {clip_id: state.selected, policy: $('framing-policy').value, regions: readRegions()}); renderFraming(true); }); });

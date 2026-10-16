@@ -6,9 +6,10 @@ and editorial direction. Review ranked excerpts, adjust their boundaries, and
 export captioned clips.
 
 This is a working first slice: transcript-led selection with whole-episode context
-checks, audio-energy features, manual trimming, and original/vertical exports.
-Active-speaker tracking, visual understanding and current-trend lookup are future
-modules. The surrounding podcast studio can call the Python engine or CLI without
+checks, audio-energy features, manual trimming, and content-aware vertical composition.
+Sampled visual analysis finds source regions; local face observations protect
+framing and provide conservative speaker-focus estimates. Current-trend lookup
+and a trained active-speaker model remain future modules. The surrounding podcast studio can call the Python engine or CLI without
 using the bundled review UI.
 
 Live URL: local application at [127.0.0.1:8787](http://127.0.0.1:8787). No hosted service.
@@ -42,7 +43,7 @@ To transcribe a full recording automatically on Apple Silicon:
 ```sh
 python3.11 -m venv .venv
 . .venv/bin/activate
-python -m pip install -e . mlx-whisper==0.4.3
+python -m pip install -e '.[framing]' mlx-whisper==0.4.3
 python -m clip_machine serve --open
 ```
 
@@ -60,9 +61,10 @@ python3 -m clip_machine demo
 python3 -m clip_machine process /path/to/episode.mp4 \
   --transcript /path/to/whisper.json --provider codex \
   --direction "Complete stories about changing your mind" \
-  --count 6 --min-seconds 20 --max-seconds 90 --layout portrait --render
+  --count 6 --min-seconds 20 --max-seconds 90 --layout portrait --smart-framing --render
 python3 -m clip_machine show JOB_ID
 python3 -m clip_machine export JOB_ID
+python3 -m clip_machine frame JOB_ID --clip CLIP_ID --policy auto
 ```
 
 Omit `--transcript` to use MLX. Set `--provider claude` for Claude Code. `--model`
@@ -85,8 +87,31 @@ reference a recording directly without copying it. Originals are never modified.
 - A review history containing original suggestions and manual trim/keep/reject
   feedback. Trimming invalidates an old export; rerendering creates a new revision.
 
-Vertical video uses a **center crop**, which can crop out an off-center speaker.
-Preview it before sharing. There is no claim of speaker tracking. Word-timed
+Vertical composition follows a separate, editable framing plan:
+
+- Two people stay visible together.
+- Gameplay/screen content stays intact, with separate synchronized people panels.
+  Containing the complete game viewport keeps a moving avatar in view whenever
+  it is visible in the source; the system does not invent an avatar track.
+- Larger groups can focus a speaker after sustained audio-gated mouth motion;
+  uncertain evidence keeps everyone visible. **This is a heuristic, not a trained
+  active-speaker detector**; review focus cuts before sharing, or choose Everyone.
+- Unknown/changing layouts retain the full source. No blind center-crop fallback.
+- Captions occupy a separate bottom band; audio is included once.
+
+Use **Framing & layout** to inspect source regions and a composition proof,
+choose a policy, or adjust percentage bounds. Saving manual regions applies them
+to the whole clip and invalidates the export. **Reframe all** analyzes existing
+cuts without repeating transcription or clip selection. Smart framing is enabled
+for new browser video jobs; CLI/library callers opt in with `smart_framing`.
+Install `.[framing]` for local face observations. Without it, source camera regions
+are retained and larger groups remain together. Model image analysis still uses
+the selected signed-in CLI. Codex image framing was tested with a real recording;
+the Claude image transport is fixture-tested only.
+
+Five sampled frames cannot guarantee coverage of brief layout changes, occlusions
+or rapid movement. Overlaid source previews cannot be magically removed; framing
+cannot restore a face/avatar already obscured in the recording. Word-timed
 transcripts give better caption timing; segment-only imports retain segment-level
 captions. ASR and model context checks still need editorial review.
 
@@ -104,7 +129,7 @@ from clip_machine.engine import create_job, analyze_job, edit_clip, export_job
 
 store = JobStore("data/studio-clips")
 job = create_job(store, "data/episode.mp4", {
-    "provider": "codex", "count": 6, "layout": "portrait",
+    "provider": "codex", "count": 6, "layout": "portrait", "smart_framing": True,
 }, transcript_path="data/episode-transcript.json")
 job = analyze_job(store, job["id"])
 first = job["clips"][0]  # Handle an empty result in a production integration.
@@ -123,7 +148,8 @@ dependencies.
 ## Privacy and reproducibility
 
 Media processing happens locally. **Transcript text, editorial direction, speaker
-labels and energy summaries go to the selected model provider.** Provider
+labels, energy summaries and sampled video frames for smart framing go to the
+selected model provider.** Provider
 processing and account policies still apply; a subscription is not local inference.
 The review server binds only to loopback, validates request origins/hosts, and
 requires a per-session token for writes. It is not a public hosting server.
@@ -137,6 +163,7 @@ Source size/mtime checks stop exports after the underlying file changes.
 ## Verify
 
 ```sh
+python3 -m pip install -e '.[framing]'
 python3 -m unittest discover -s tests -v
 node --check clip_machine/web/app.js
 ```

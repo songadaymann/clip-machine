@@ -11,6 +11,9 @@ license = "MIT"
 authors = [{name = "Jonathan Mann"}]
 dependencies = []
 
+[project.optional-dependencies]
+framing = ["opencv-python-headless>=4.11,<5", "Pillow>=11,<13"]
+
 [project.scripts]
 clip-machine = "clip_machine.cli:main"
 

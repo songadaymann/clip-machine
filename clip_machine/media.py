@@ -39,10 +39,14 @@ def probe(source):
                   and not s.get("disposition", {}).get("attached_pic")), None)
     audio_streams = [s for s in streams if s["codec_type"] == "audio"]
     audio = next((s for s in audio_streams if s.get("disposition", {}).get("default")), audio_streams[0])
+    rotation = next((s.get("rotation", 0) for s in (video or {}).get("side_data_list", []) if "rotation" in s),
+                    (video or {}).get("tags", {}).get("rotate", 0))
+    width, height = ((video.get("width"), video.get("height")) if video else (None, None))
+    if video and abs(float(rotation)) % 180 == 90:
+        width, height = height, width  # FFmpeg and OpenCV apply display rotation before framing.
     return {"duration": duration, "has_video": bool(video),
             "audio_stream": audio["index"], "video_stream": video["index"] if video else None,
-            "width": video.get("width") if video else None,
-            "height": video.get("height") if video else None}
+            "width": width, "height": height}
 
 
 def extract_audio(source, target, audio_stream=None):

@@ -36,13 +36,13 @@
           <label class="field">Transcript JSON <span class="optional">(optional)</span><input id="transcript-file" type="file" accept=".json,application/json"></label>
         </details>
         <p id="transcription-note" class="note"></p>
-        <p class="note">Vertical video uses a center crop. Analysis sends transcript text to your selected provider.</p>
+        <p class="note">Vertical video keeps the game and people together. Analysis sends transcript text and sampled video frames to your selected provider.</p>
         <div class="submit-row"><button id="analyze" class="primary" type="submit">Find clips <span aria-hidden="true">↗</span></button><button id="demo" type="button" class="quiet">Try a sample episode</button></div>
       </form>
       <section id="history" aria-labelledby="history-title"><h2 id="history-title">Recent episodes</h2><div id="history-list"></div></section>
     </section>
     <section id="workbench" hidden aria-label="Episode clips">
-      <div class="episode-heading"><div><h1 id="episode-name"></h1><p id="episode-status" role="status" aria-live="polite"></p></div><div class="episode-actions"><button id="retry" hidden>Retry analysis</button><button id="export-all" class="primary">Export all <span aria-hidden="true">↓</span></button></div></div>
+      <div class="episode-heading"><div><h1 id="episode-name"></h1><p id="episode-status" role="status" aria-live="polite"></p></div><div class="episode-actions"><button id="retry" hidden>Retry analysis</button><button id="frame-all">Reframe all</button><button id="export-all" class="primary">Export all <span aria-hidden="true">↓</span></button></div></div>
       <p id="demo-note" class="notice" hidden>Synthetic demo: test-pattern video, tones, sample text and fixture scores. No AI analysis was run.</p>
       <div id="processing" hidden><div class="processing-line"></div><p id="processing-message"></p><p class="note">You can leave this tab open while the local engine works.</p></div>
       <div id="review" class="review" hidden>
@@ -57,6 +57,12 @@
           <p class="note" id="edited-note" hidden>Edited cut. The score and context check apply to the original suggestion.</p>
           <form id="trim-form" class="trim-form"><label class="field">Start<input id="trim-start" type="text" inputmode="decimal" aria-label="Clip start in minutes and seconds" required></label><label class="field">End<input id="trim-end" type="text" inputmode="decimal" aria-label="Clip end in minutes and seconds" required></label><button type="submit">Save trim</button><button type="button" class="quiet" id="play-clip">Play clip <span aria-hidden="true">▶</span></button></form>
           <div class="clip-actions"><button id="approve">Keep clip</button><button id="reject" class="quiet">Reject</button><button id="export-clip" class="primary">Export clip ↓</button><span id="downloads"></span></div>
+          <details id="framing-panel" class="framing-panel"><summary>Framing & layout</summary>
+            <p id="framing-note" class="note"></p>
+            <div class="framing-actions"><label class="field">Layout<select id="framing-policy"><option value="auto">Automatic</option><option value="gameplay_people">Game + people</option><option value="two_people">Both people</option><option value="group">Everyone</option><option value="speaker">Speaker focus</option><option value="full_frame">Full source</option></select></label><button id="frame-clip" type="button">Analyze & re-export</button></div>
+            <div id="framing-proof" hidden><div><p class="note">Source regions · <select id="framing-scene" aria-label="Framing scene"></select></p><div class="source-regions"><img id="framing-source" alt="Uncropped source frame"><svg id="region-overlay" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-label="Selected source regions"></svg></div></div><div><p class="note">Composition preview · first scene</p><img id="framing-preview" alt="Vertical composition preview"></div></div>
+            <form id="regions-form" hidden><p class="note">Adjust source regions as percentages of the full image. Saving applies these regions to the whole clip.</p><div class="region-scroll"><table><thead><tr><th>Region</th><th>Type</th><th>Left %</th><th>Top %</th><th>Width %</th><th>Height %</th><th></th></tr></thead><tbody id="region-rows"></tbody></table></div><div class="framing-actions"><button id="add-region" type="button" class="quiet">Add region</button><button type="submit">Save regions</button></div></form>
+          </details>
           <div class="episode-timeline"><div class="list-heading"><h2>In the episode</h2><span id="episode-duration"></span></div><svg id="waveform" viewBox="0 0 900 64" role="img" aria-label="Audio energy and selected clip in the episode" tabindex="0"></svg></div>
           <details id="transcript-panel" class="transcript-panel"><summary>Transcript & boundaries</summary><div id="transcript"></div></details>
         </div>

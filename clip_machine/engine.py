@@ -6,7 +6,9 @@ from pathlib import Path
 
 from .media import energy_features, extract_audio, probe
 from .providers import CLIProvider, CachedProvider
-from .render import render_clip
+from .render import render_clip, framing_preview
+from .framing import POLICIES, fallback_plan, manual_plan, validate_plan
+from .vision import VisualFramer
 from .selection import select_clips, validate_options
 from .storage import now, verify_source, write_json
 from .transcript import ImportedTranscript, MLXTranscriber, number
@@ -97,6 +99,8 @@ def edit_clip(store, job_id, clip_id, start=None, end=None, decision=None):
         if changed:
             clip["revision"] += 1
             clip["export"] = None
+            if clip.get("framing"):
+                clip.setdefault("framing_history", []).append(clip.pop("framing"))
         job["status"] = "ready"
         job["error"] = None
         job["message"] = "Trim saved; export again" if changed else "Review saved"
@@ -116,6 +120,9 @@ def export_job(store, job_id, clip_id=None):
         if not selected:
             raise ValueError("No selected clips to export")
         for index, clip in enumerate(selected):
+            if (job["options"].get("smart_framing") and job["options"].get("layout") == "portrait"
+                    and job["media"]["has_video"] and not clip.get("framing")):
+                _analyze_framing(store, job, clip, transcript=transcript)
             store.event(job, "rendering", "Exporting clip %d of %d: %s" % (index + 1, len(selected), clip["title"]))
             if not clip.get("export"):
                 clip["export"] = render_clip(source, job["media"], transcript, clip, folder / "exports",
@@ -128,3 +135,91 @@ def export_job(store, job_id, clip_id=None):
         job["error"] = str(error)
         store.event(job, "failed", str(error))
         raise
+
+
+def _ready_framing(job):
+    if job["status"] not in ("ready", "complete", "failed") or not job.get("media", {}).get("has_video"):
+        raise ValueError("Wait for a video episode to finish before framing")
+
+
+def _set_framing(clip, plan):
+    if clip.get("framing"):
+        clip.setdefault("framing_history", []).append(clip["framing"])
+    clip["framing"] = plan
+    clip["revision"] += 1
+    clip["export"] = None
+
+
+def _analyze_framing(store, job, clip, policy="auto", framer=None, transcript=None):
+    folder = store.folder(job["id"])
+    target = folder / "framing" / (clip["id"] + "-r%d" % (clip["revision"] + 1))
+    target.mkdir(parents=True, exist_ok=True)
+    store.event(job, "framing", "Choosing a layout: " + clip["title"])
+    if transcript is None:
+        transcript = json.loads((folder / "transcript.json").read_text())
+    if policy == "full_frame":
+        plan = fallback_plan(clip, "Full source view selected.")
+        plan.update(needs_review=False, method="full-source-reviewed")
+    elif framer is None:
+        provider = CLIProvider(job["options"].get("provider", "codex"), job["options"].get("model"))
+        framer = VisualFramer(CachedProvider(provider, target / "model-cache"))
+    # A failed analysis leaves the current reviewed plan/export untouched.
+    if policy != "full_frame":
+        plan = framer.analyze(verify_source(job), job["media"], clip, target, policy,
+                              folder / "audio.wav", transcript)
+    plan = validate_plan(plan, clip)
+    if plan.get("samples"):
+        preview = target / "preview.jpg"
+        framing_preview(folder / plan["samples"][0]["file"], plan, preview)
+        plan["preview"] = str(preview.relative_to(folder))
+    write_json(target / "plan.json", plan)
+    _set_framing(clip, plan)
+    job["options"]["layout"] = "portrait"
+    store.save(job)
+
+
+def reframe_job(store, job_id, clip_id=None, policy="auto", framer=None, render=True):
+    job = store.load(job_id)
+    _ready_framing(job)
+    if policy not in POLICIES:
+        raise ValueError("Unknown framing policy")
+    selected = [c for c in job["clips"] if c["decision"] != "rejected" and (not clip_id or c["id"] == clip_id)]
+    if not selected:
+        raise ValueError("No selected clips to frame")
+    try:
+        for clip in selected:
+            _analyze_framing(store, job, clip, policy, framer)
+        job["options"]["layout"] = "portrait"
+        job["error"] = None
+        store.event(job, "ready", "Framing ready to review")
+    except Exception as error:
+        job["error"] = str(error)
+        store.event(job, "failed", str(error))
+        raise
+    return export_job(store, job_id, clip_id) if render else job
+
+
+def save_framing(store, job_id, clip_id, regions, policy="auto"):
+    with store.lock:
+        job = store.load(job_id)
+        _ready_framing(job)
+        clip = next((c for c in job["clips"] if c["id"] == clip_id), None)
+        if clip is None:
+            raise ValueError("Unknown clip")
+        plan = (fallback_plan(clip, "Full source view selected.") if policy == "full_frame"
+                else manual_plan(clip, regions, policy))
+        plan.update(needs_review=False)
+        previous = clip.get("framing", {})
+        plan["samples"] = previous.get("samples", [])
+        if plan["samples"]:
+            target = store.folder(job_id) / "framing" / (clip_id + "-r%d" % (clip["revision"] + 1))
+            target.mkdir(parents=True, exist_ok=True)
+            preview = target / "preview.jpg"
+            framing_preview(store.folder(job_id) / plan["samples"][0]["file"], plan, preview)
+            plan["preview"] = str(preview.relative_to(store.folder(job_id)))
+            write_json(target / "plan.json", plan)
+        _set_framing(clip, plan)
+        job["options"]["layout"] = "portrait"
+        job.update(status="ready", error=None, message="Framing saved; export again")
+        store.save(job)
+        return job

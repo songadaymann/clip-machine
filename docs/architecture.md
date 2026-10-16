@@ -28,6 +28,8 @@ Studio library / sharing stage
 | `transcript.py` | Canonical schema, import, optional MLX | Renderer, review UI |
 | `providers.py` | Model interface, Codex/Claude adapters, request cache | Media processing |
 | `selection.py` | Prompts, grounding, context audit, score policy | Provider transport, rendering |
+| `framing.py` | Validated source-region/timeline contract and layout rules | Visual model, renderer |
+| `vision.py`, `tracking.py` | Sampled image interpretation, local face/speaker observations | Editorial selection, UI |
 | `render.py` | Accurate transcoding, layouts, captions | Editorial model |
 | `storage.py` | Private local artifact store, atomic manifests | User interface |
 | `engine.py` | Job orchestration and review/export entry points | Studio UI and social publishing |
@@ -112,7 +114,7 @@ or invented speech. Exporting all includes unreviewed and approved clips and
 skips rejected ones. Old revision files remain private in the job folder.
 
 Lifecycle: queued → inspecting → preparing → transcribing → analyzing →
-summarizing → selecting → checking → ready → rendering → complete. Failure
+summarizing → selecting → checking → ready → framing (optional) → rendering → complete. Failure
 stores a readable error. A successful run can yield zero clips. Retry analysis
 with cached inputs before clips exist; retry export once clips exist. Interrupted
 jobs become retryable on server restart. The local server queues work serially;
@@ -147,8 +149,50 @@ local server to the network as that API.
 ## Next modules
 
 1. Evaluate real episodes together and use the saved trim/keep/reject feedback.
-2. Add diarization/active-speaker tracking and a framing plan per shot. Keep
-   framing decisions separate from editorial clip selection.
+2. Evaluate framing on varied layouts; replace heuristic activity with a trained
+   audiovisual active-speaker model and scene-change tracking.
 3. Add time-aligned visual and acoustic events through explicit feature modules.
 4. Introduce actual dated trend evidence if it proves useful for the studio.
 5. Add remote workers/storage and the studio's final publishing integration.
+
+
+## Framing contract, version 1
+
+`clip.framing` is independent of editorial scores. It binds `clip_start/clip_end`
+to the current trim, records `policy`, `method`, `needs_review`, sampled source
+images, evidence and a contiguous relative-time `scenes` list. Each scene has
+normalized `[x,y,width,height]` source regions (anonymous `person`, `gameplay`,
+`content`) and panels mapping a source crop to `[x,y,width,height]` destination
+pixels on a 720×1280 canvas. All panels use `fit: contain`; the bottom 176 pixels
+are reserved for captions. Protected subject boxes must remain inside the crop;
+game/content regions are preserved in full. Destination panels cannot overlap.
+A `full_source` fallback must preserve the complete source image.
+
+Two-person scenes retain both; content scenes retain all participants. Larger
+speaker scenes require an explicit active person. The renderer validates the
+contract without invoking models. `VisualFramer` implements `analyze(source,
+media, clip, folder, policy, audio_path, transcript)`; `reframe_job(..., framer=...)`
+accepts an alternative implementation for the studio. `save_framing` creates a
+manual whole-clip plan. Changed plans increment revision and clear the export;
+trim edits archive/clear stale framing. Previous plans/exports stay private.
+
+Visual interpretation currently samples five images per clip, keeping a full
+source view across intervals with inconsistent geometry. Local observations sample
+faces twice per second within known feeds. Stable face bounds protect heads;
+audio-gated, head-aligned lower-face motion can suggest a speaker in groups of
+three or more. Focus requires sustained activity and dominance over other feeds.
+This is not diarization, identity recognition or trained audiovisual speech
+classification. Missing dependencies/detections and ambiguous turns retain the
+group. Frames are sent through the selected CLI, cached by image content as well
+as prompt/schema/model. No model calls happen in automated tests.
+
+HTTP additions:
+
+- `POST /api/jobs/:id/frame`: `{clip_id?, policy?}` queues analysis and re-export.
+- `POST /api/jobs/:id/framing`: `{clip_id, regions, policy?}` saves manual framing.
+- `GET /api/jobs/:id/framing/:revision/:image.jpg`: current plan's whitelisted
+  sample/preview images only. Arbitrary private job files cannot be downloaded.
+
+A framing failure preserves the current export and exposes the error for retry.
+Auto framing runs only when `options.smart_framing` is true for portrait video.
+Without a plan the renderer preserves the full source rather than center-cropping.

@@ -64,7 +64,7 @@ def validate_options(options):
         raise ValueError("Direction must be text of at most 4000 characters")
     if options.get("model") is not None and (not isinstance(options["model"], str) or len(options["model"]) > 200):
         raise ValueError("Model must be a short model name")
-    for key in ("burn_captions", "auto_render"):
+    for key in ("burn_captions", "auto_render", "smart_framing"):
         if key in options and type(options[key]) is not bool:
             raise ValueError(key + " must be true or false")
     return {**options, "min_seconds": low, "max_seconds": high, "count": count,

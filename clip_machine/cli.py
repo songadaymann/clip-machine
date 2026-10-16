@@ -4,7 +4,7 @@ import json
 import sys
 
 from .demo import DemoProvider, create_demo
-from .engine import analyze_job, create_job, export_job
+from .engine import analyze_job, create_job, export_job, reframe_job
 from .media import capabilities
 from .storage import JobStore
 
@@ -31,12 +31,18 @@ def main():
     process.add_argument("--layout", choices=["original", "portrait"], default="original")
     process.add_argument("--render", action="store_true")
     process.add_argument("--no-captions", action="store_true")
+    process.add_argument("--smart-framing", action="store_true", help="Analyze video regions for portrait exports")
     process.add_argument("--transcription-model", default="mlx-community/whisper-large-v3-turbo")
     retry = commands.add_parser("retry", help="Retry a failed analysis, preserving cached model responses")
     retry.add_argument("job_id")
     export = commands.add_parser("export", help="Export all non-rejected clips, or a single clip")
     export.add_argument("job_id")
     export.add_argument("--clip", dest="clip_id")
+    frame = commands.add_parser("frame", help="Analyze framing and re-export existing clips")
+    frame.add_argument("job_id")
+    frame.add_argument("--clip", dest="clip_id")
+    frame.add_argument("--policy", choices=["auto", "gameplay_people", "two_people", "group", "speaker", "full_frame"], default="auto")
+    frame.add_argument("--no-render", action="store_true")
     show = commands.add_parser("show", help="Print a job's versioned JSON manifest")
     show.add_argument("job_id")
     args = parser.parse_args()
@@ -59,13 +65,15 @@ def main():
             options = {"provider": args.provider, "model": args.model, "direction": args.direction,
                        "count": args.count, "min_seconds": args.min_seconds, "max_seconds": args.max_seconds,
                        "layout": args.layout, "auto_render": args.render, "burn_captions": not args.no_captions,
-                       "transcription_model": args.transcription_model}
+                       "transcription_model": args.transcription_model, "smart_framing": args.smart_framing}
             job = create_job(store, args.source, options, args.transcript)
             print("Job: " + job["id"], file=sys.stderr, flush=True)
             result = analyze_job(store, job["id"])
         elif args.command == "retry":
             job = store.load(args.job_id)
             result = analyze_job(store, args.job_id, DemoProvider() if job["options"].get("provider") == "demo-fixture" else None)
+        elif args.command == "frame":
+            result = reframe_job(store, args.job_id, args.clip_id, args.policy, render=not args.no_render)
         elif args.command == "export":
             result = export_job(store, args.job_id, args.clip_id)
         else:

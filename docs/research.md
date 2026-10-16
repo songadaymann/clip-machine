@@ -84,3 +84,21 @@ against selection with relative energy using the same examples and prompts.
 Judge the loudness hypothesis from that comparison. Do not optimize a fabricated
 virality label. Add scene, laughter and active-speaker signals only after this
 baseline produces useful clips.
+
+
+## Framing implementation
+
+Region selection and visual composition are separate from excerpt ranking.
+Game viewports are contained in full so player motion does not require an
+unreliable inferred avatar track. People panels are synchronized crops of the
+same source, with one original audio track. Two people stay together; a larger
+group uses conservative activity evidence or stays as a group.
+
+The optional local baseline uses [OpenCV face detection](https://docs.opencv.org/4.13.0/db/d28/tutorial_cascade_classifier.html)
+and head-aligned patch differences. It gates lower-face motion with timestamped
+speech and local audio presence, with sustained dominance before focus. It is
+not equivalent to a trained audiovisual active-speaker system such as those
+evaluated using [AVA ActiveSpeaker](https://research.google/pubs/ava-activespeaker-an-audio-visual-dataset-for-active-speaker-detection/).
+Five sampled images and a heuristic cannot guarantee correct framing for every
+layout change or speaker turn; source-region review and group/full-source
+fallbacks are explicit parts of this implementation.
