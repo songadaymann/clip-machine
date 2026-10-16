@@ -15,7 +15,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from .demo import DemoProvider, create_demo
-from .engine import analyze_job, create_job, edit_clip, export_job, reframe_job, save_framing
+from .captions import STYLE_VERSION
+from .engine import (analyze_job, caption_preview, create_job, edit_captions, edit_clip, export_job, reframe_job,
+                     save_framing, suggest_caption_emphasis)
 from .media import capabilities
 from .storage import verify_source
 
@@ -93,13 +95,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             path = urlparse(self.path).path
             if path == "/api/config":
-                self.json({"token": self.server.token, "capabilities": capabilities()})
+                self.json({"token": self.server.token, "capabilities": capabilities(), "caption_style": STYLE_VERSION})
             elif path == "/api/jobs":
                 self.json(self.server.store.list())
             elif path in ("/", "/app.js", "/style.css"):
                 self.file(WEB / ("index.html" if path == "/" else path[1:]))
             else:
-                match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})(?:/(transcript|energy|source|files/[^/]+|framing/[a-f0-9]+-r[0-9]+/[a-z0-9-]+\.jpg))?", path)
+                match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})(?:/(transcript|energy|source|captions/[a-f0-9]{12}|files/[^/]+|framing/[a-f0-9]+-r[0-9]+/[a-z0-9-]+\.jpg))?", path)
                 if not match:
                     self.json({"error": "Not found"}, 404)
                     return
@@ -111,6 +113,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.json(json.loads((self.server.store.folder(identity) / (action + ".json")).read_text()))
                 elif action == "source":
                     self.file(verify_source(job))
+                elif action.startswith("captions/"):
+                    self.json(caption_preview(self.server.store, identity, action.split("/", 1)[1]))
                 elif action.startswith("framing/"):
                     allowed = {s["file"] for c in job["clips"] for s in c.get("framing", {}).get("samples", [])}
                     allowed.update(c["framing"]["preview"] for c in job["clips"] if c.get("framing", {}).get("preview"))
@@ -174,7 +178,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.server.submit(job["id"], lambda: analyze_job(store, job["id"]))
                 self.json(self.job(job["id"]), 202)
             else:
-                match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})/(edit|export|retry|frame|framing)", parsed.path)
+                match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})/(edit|export|retry|frame|framing|captions|emphasis)", parsed.path)
                 if not match:
                     self.json({"error": "Not found"}, 404)
                     return
@@ -185,6 +189,13 @@ class Handler(BaseHTTPRequestHandler):
                     if action == "edit":
                         result = edit_clip(store, identity, body["clip_id"], body.get("start"), body.get("end"), body.get("decision"))
                         self.json(result)
+                    elif action == "captions":
+                        self.json(edit_captions(store, identity, body["clip_id"], body.get("changes", {})))
+                    elif action == "emphasis":
+                        job = store.load(identity)
+                        provider = DemoProvider() if job["options"].get("provider") == "demo-fixture" else None
+                        self.server.submit(identity, lambda: suggest_caption_emphasis(store, identity, body.get("clip_id"), provider))
+                        self.json(self.job(identity), 202)
                     elif action == "framing":
                         self.json(save_framing(store, identity, body["clip_id"], body.get("regions", []), body.get("policy", "auto")))
                     elif action == "frame":

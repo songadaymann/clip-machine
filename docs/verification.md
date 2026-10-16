@@ -52,3 +52,23 @@ transient provider connection failure using cached analysis, and completed all
 duration within the renderer tolerance, and has SRT/VTT/ASS caption sidecars.
 Browser playback loaded an exported clip without a media error. Retry handling
 also clears a stale error banner once a job resumes.
+
+## Caption upgrade, 2026-10-16
+
+47 tests pass (14 new caption tests plus engine/API coverage), and the JavaScript
+syntax check passes. Tests cover cleanup rules and the words they must keep,
+balanced phrasing within the measured 580 px line width, override layering,
+verbatim mode, segment-only transcripts, ASS escaping, font/accent output,
+placement between game and faces, emphasis grounding/spacing, failed requests,
+revision/export invalidation and unchanged transcript bytes.
+
+On a private copy of the real game-jam job (not the live job), the 49.5-second
+top clip went from 148 spoken words to 119 caption words. One live Codex request
+returned ten emphasis words, all at least three seconds apart; an earlier attempt
+hit a transient connection failure, which was recorded without failing the job.
+The re-export is 720×1280, 49.48 s, one audio stream, with captions centered at
+y 706 between the game image (ends at 679) and the camera panels (start at 760).
+In the browser, word cycling (emphasized → hidden → shown) cleared overrides on
+return, logged feedback and saved the hook. At 375 px the panel had no horizontal
+overflow and used only the existing 12/16 px type sizes; no console errors.
+Placement and cleanup are heuristics: review captions before sharing.

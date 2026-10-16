@@ -4,7 +4,7 @@ import json
 import sys
 
 from .demo import DemoProvider, create_demo
-from .engine import analyze_job, create_job, export_job, reframe_job
+from .engine import analyze_job, create_job, export_job, reframe_job, suggest_caption_emphasis
 from .media import capabilities
 from .storage import JobStore
 
@@ -43,6 +43,9 @@ def main():
     frame.add_argument("--clip", dest="clip_id")
     frame.add_argument("--policy", choices=["auto", "gameplay_people", "two_people", "group", "speaker", "full_frame"], default="auto")
     frame.add_argument("--no-render", action="store_true")
+    emphasis = commands.add_parser("emphasis", help="Suggest caption emphasis words for existing clips")
+    emphasis.add_argument("job_id")
+    emphasis.add_argument("--clip", dest="clip_id")
     show = commands.add_parser("show", help="Print a job's versioned JSON manifest")
     show.add_argument("job_id")
     args = parser.parse_args()
@@ -74,6 +77,10 @@ def main():
             result = analyze_job(store, args.job_id, DemoProvider() if job["options"].get("provider") == "demo-fixture" else None)
         elif args.command == "frame":
             result = reframe_job(store, args.job_id, args.clip_id, args.policy, render=not args.no_render)
+        elif args.command == "emphasis":
+            job = store.load(args.job_id)
+            result = suggest_caption_emphasis(store, args.job_id, args.clip_id,
+                                              DemoProvider() if job["options"].get("provider") == "demo-fixture" else None)
         elif args.command == "export":
             result = export_job(store, args.job_id, args.clip_id)
         else:

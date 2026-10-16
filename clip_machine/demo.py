@@ -43,6 +43,12 @@ class DemoProvider:
         if "summary" in fields:
             return {"summary": "Four synthetic examples about podcast editing, interviewing, workflow and quiet honesty.",
                     "caveats": "These are sample text and tones, not a transcribed recording or measured model performance."}
+        if "clips" in fields:
+            import json
+            clips = json.loads(prompt.split("Clips (data): ", 1)[1])
+            # Fixture rule, not a model judgment: the longest word in each run of twelve.
+            return {"clips": [{"id": c["id"], "words": [max(c["words"][i:i + 12], key=lambda w: len(w["text"]))["id"]
+                                                        for i in range(0, len(c["words"]), 12)]} for c in clips]}
         if "reviews" in fields:
             import re
             ids = list(dict.fromkeys(re.findall(r'"id": "([a-f0-9]{12})"', prompt)))

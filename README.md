@@ -65,6 +65,7 @@ python3 -m clip_machine process /path/to/episode.mp4 \
 python3 -m clip_machine show JOB_ID
 python3 -m clip_machine export JOB_ID
 python3 -m clip_machine frame JOB_ID --clip CLIP_ID --policy auto
+python3 -m clip_machine emphasis JOB_ID --clip CLIP_ID
 ```
 
 Omit `--transcript` to use MLX. Set `--provider claude` for Claude Code. `--model`
@@ -87,6 +88,25 @@ reference a recording directly without copying it. Originals are never modified.
 - A review history containing original suggestions and manual trim/keep/reject
   feedback. Trimming invalidates an old export; rerendering creates a new revision.
 
+Burned-in captions use bundled Archivo Condensed Black in caps, 1–4 word phrases
+with the spoken word highlighted in red (#F6020C):
+
+- **Clean captions** hide filler (um, uh), restarts ("As we see… As we see fit")
+  and set-off asides ("you know", "I mean", "like" between pauses or commas).
+  This only changes what is displayed: the audio and transcript are untouched,
+  and **Verbatim** shows every word. Sidecar SRT/VTT files match the burned-in text.
+- **Emphasis**: the selected provider suggests payoff words during analysis (at
+  most one every three seconds). They render 20% larger and stay red once spoken.
+- **Placement** comes from the framing plan: captions avoid faces and game/content
+  and stay out of the areas TikTok, Reels and Shorts cover with their own UI.
+- **Hook title** (off by default) shows an editable headline for 2.5 seconds.
+
+Open **Captions** on a clip to click words between shown, emphasized and hidden,
+switch to verbatim, or set the hook. Manual changes are stored beside the
+suggestions, survive trims and invalidate the export. **Suggest emphasis** asks
+the provider again (cached); existing jobs can use it or `clip-machine emphasis JOB_ID`.
+Segment-only transcripts keep whole-segment captions without word highlighting.
+
 Vertical composition follows a separate, editable framing plan:
 
 - Two people stay visible together.
@@ -97,7 +117,7 @@ Vertical composition follows a separate, editable framing plan:
   uncertain evidence keeps everyone visible. **This is a heuristic, not a trained
   active-speaker detector**; review focus cuts before sharing, or choose Everyone.
 - Unknown/changing layouts retain the full source. No blind center-crop fallback.
-- Captions occupy a separate bottom band; audio is included once.
+- Captions are placed between or beside protected regions; audio is included once.
 
 Use **Framing & layout** to inspect source regions and a composition proof,
 choose a policy, or adjust percentage bounds. Saving manual regions applies them
@@ -148,8 +168,8 @@ dependencies.
 ## Privacy and reproducibility
 
 Media processing happens locally. **Transcript text, editorial direction, speaker
-labels, energy summaries and sampled video frames for smart framing go to the
-selected model provider.** Provider
+labels, energy summaries, clip words for caption emphasis and sampled video frames
+for smart framing go to the selected model provider.** Provider
 processing and account policies still apply; a subscription is not local inference.
 The review server binds only to loopback, validates request origins/hosts, and
 requires a per-session token for writes. It is not a public hosting server.
@@ -173,4 +193,5 @@ deduplication, cache reuse, gain-invariant relative energy, manual revisions,
 real FFmpeg exports and the local API. Tests use synthetic media and fixture
 responses; they do not spend model usage or evaluate real-world clip quality.
 
-Code: MIT, copyright Jonathan Mann. Media and excluded inputs: [ASSETS.md](ASSETS.md).
+Code: MIT, copyright Jonathan Mann. The bundled caption font is under the SIL Open
+Font License 1.1. Media, fonts and excluded inputs: [ASSETS.md](ASSETS.md).

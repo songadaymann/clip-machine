@@ -30,7 +30,8 @@ Studio library / sharing stage
 | `selection.py` | Prompts, grounding, context audit, score policy | Provider transport, rendering |
 | `framing.py` | Validated source-region/timeline contract and layout rules | Visual model, renderer |
 | `vision.py`, `tracking.py` | Sampled image interpretation, local face/speaker observations | Editorial selection, UI |
-| `render.py` | Accurate transcoding, layouts, captions | Editorial model |
+| `captions.py` | Caption cleanup, phrasing, emphasis, placement, caption files | Transcript, framing, provider transport |
+| `render.py` | Accurate transcoding, layouts, burning captions | Editorial model |
 | `storage.py` | Private local artifact store, atomic manifests | User interface |
 | `engine.py` | Job orchestration and review/export entry points | Studio UI and social publishing |
 | `server.py`, `web/` | Optional loopback review adapter | Engine callers |
@@ -114,7 +115,7 @@ or invented speech. Exporting all includes unreviewed and approved clips and
 skips rejected ones. Old revision files remain private in the job folder.
 
 Lifecycle: queued → inspecting → preparing → transcribing → analyzing →
-summarizing → selecting → checking → ready → framing (optional) → rendering → complete. Failure
+summarizing → selecting → checking → captioning → ready → framing (optional) → rendering → complete. Failure
 stores a readable error. A successful run can yield zero clips. Retry analysis
 with cached inputs before clips exist; retry export once clips exist. Interrupted
 jobs become retryable on server restart. The local server queues work serially;
@@ -139,6 +140,9 @@ allowed Host/Origin. This adapter is intended for one trusted local user.
 | `POST /api/jobs/:id/edit` | `{clip_id, start?, end?, decision?}` → updated manifest |
 | `POST /api/jobs/:id/export` | `{clip_id?}` → background render |
 | `POST /api/jobs/:id/retry` | Retry failed analysis |
+| `GET /api/jobs/:id/captions/:clip` | Caption plan: words, visibility, emphasis and phrases |
+| `POST /api/jobs/:id/captions` | `{clip_id, changes: {mode?, hidden?, emphasis?, hook?}}` → updated manifest |
+| `POST /api/jobs/:id/emphasis` | `{clip_id?}` → background emphasis suggestion |
 | `POST /api/demo` | Create clearly labeled synthetic demo |
 
 For orchestration on this computer, importing the engine or invoking the CLI
@@ -196,3 +200,33 @@ HTTP additions:
 A framing failure preserves the current export and exposes the error for retry.
 Auto framing runs only when `options.smart_framing` is true for portrait video.
 Without a plan the renderer preserves the full source rather than center-cropping.
+
+
+## Caption contract, version 1
+
+Captions are a display layer over the canonical transcript. Words are referenced
+as `segment_id:word_index` (segment-only imports use whitespace tokens of the
+segment text). Nothing in the transcript, audio or clip boundaries changes.
+
+`clip.captions` (absent means defaults) holds:
+
+- `mode`: `clean` (default) or `verbatim`.
+- `emphasis_suggestion`: `{refs, source, model, prompt_version, at, error}` from
+  the provider; earlier suggestions move to `emphasis_history`. A failed request
+  never replaces a usable suggestion and never fails analysis.
+- `edits`: `{hidden: {ref: bool}, emphasis: {ref: bool}}` manual overrides of the
+  rule and model suggestions. Removing an override restores the suggestion.
+- `hook`: `{enabled, text}`; disabled by default, text defaults to the clip title.
+
+Cleanup rules (`clean-v1`) are deterministic over the whole episode: filler
+tokens, restarted fragments before an ellipsis or dash, comma stutters of short
+function words, and "you know" / "I mean" / "like" only when set off by
+punctuation on both sides. Phrases are 1–4 words, split at sentence ends,
+trailing-off and pauses over 0.3 s, then balanced by measured rendered width
+(580 px on the 720 px canvas) while keeping pairs such as "a lot of" together.
+
+Placement scores 120 px caption bands against each framing scene's actual panel
+images: tracked faces cost most, the upper part of camera panels and game/content
+less, empty background nothing. Bands stay between y 170 and 1010 of 1280, outside
+the platform UI. Caption edits and new suggestions bump the clip revision and
+clear the export. Exports record `caption_style` (`pop-v1`) and `caption_mode`.

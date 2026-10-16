@@ -11,7 +11,7 @@ from .transcript import number
 
 
 CANVAS = (720, 1280)
-CONTENT_HEIGHT = 1104  # Captions have a reserved band, independent of faces/game.
+CONTENT_HEIGHT = 1104  # The bottom band stays clear; platform UI covers it. Captions are placed by captions.py.
 POLICIES = ("auto", "gameplay_people", "two_people", "group", "speaker", "full_frame")
 
 

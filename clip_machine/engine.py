@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from .captions import caption_plan, caption_settings, episode_words, suggest_emphasis, validate_caption_edit
 from .media import energy_features, extract_audio, probe
 from .providers import CLIProvider, CachedProvider
 from .render import render_clip, framing_preview
@@ -65,8 +66,15 @@ def analyze_job(store, job_id, provider=None, transcriber=None):
         result = select_clips(transcript, energy, job["media"]["duration"], job["options"], cached,
                               lambda status, message: store.event(job, status, message))
         job.update(result)
+        emphasis_failed = False
+        if job["clips"]:
+            store.event(job, "captioning", "Choosing caption emphasis")
+            for clip, suggestion in _emphasis(transcript, job["clips"], cached):
+                clip["captions"] = {"emphasis_suggestion": suggestion}
+                emphasis_failed = emphasis_failed or bool(suggestion["error"])
         job["analysis"]["finished_at"] = now()
-        store.event(job, "ready", "%d clips ready to review" % len(job["clips"]) if job["clips"] else
+        store.event(job, "ready", "%d clips ready to review%s" % (len(job["clips"]),
+                    " (caption emphasis unavailable; retry from Captions)" if emphasis_failed else "") if job["clips"] else
                     "No excerpts passed the requested duration and context checks. Try another direction or duration.")
     except Exception as error:
         job["error"] = str(error)
@@ -223,3 +231,104 @@ def save_framing(store, job_id, clip_id, regions, policy="auto"):
         job.update(status="ready", error=None, message="Framing saved; export again")
         store.save(job)
         return job
+
+
+def _emphasis(transcript, clips, provider):
+    results = suggest_emphasis(transcript, clips, provider)
+    return [(clip, results[clip["id"]]) for clip in clips]
+
+
+def _set_emphasis(clip, suggestion):
+    """Keep earlier suggestions; a failed request never replaces a usable one."""
+    captions = clip.setdefault("captions", {})
+    previous = captions.get("emphasis_suggestion")
+    if suggestion["error"] and previous and not previous.get("error"):
+        captions["emphasis_error"] = suggestion["error"]
+        return False
+    captions.pop("emphasis_error", None)
+    if previous and not previous.get("error") and set(suggestion["refs"]) == set(previous["refs"]):
+        return False
+    if previous:
+        captions.setdefault("emphasis_history", []).append(previous)
+    captions["emphasis_suggestion"] = suggestion
+    if set(suggestion["refs"]) != set((previous or {}).get("refs", [])):
+        clip["revision"] += 1
+        clip["export"] = None
+        return True
+    return False
+
+
+def _caption_clip(job, clip_id):
+    if job["status"] not in ("ready", "complete", "failed") or "media" not in job:
+        raise ValueError("Wait for processing to finish before editing captions")
+    clip = next((c for c in job["clips"] if c["id"] == clip_id), None)
+    if clip is None:
+        raise ValueError("Unknown clip")
+    return clip
+
+
+def caption_preview(store, job_id, clip_id):
+    """The same caption plan the renderer uses, for review and manual edits."""
+    job = store.load(job_id)
+    clip = _caption_clip(job, clip_id)
+    transcript = json.loads((store.folder(job_id) / "transcript.json").read_text())
+    plan = caption_plan(transcript, clip, job["options"].get("layout") == "portrait")
+    for word in plan["words"]:
+        word.pop("trailing", None)
+    return {**plan, "clip_id": clip_id, "revision": clip["revision"],
+            "emphasis_error": (clip.get("captions") or {}).get("emphasis_error")}
+
+
+def edit_captions(store, job_id, clip_id, changes):
+    """Manual caption overrides layered on the suggestions; the transcript stays untouched."""
+    with store.lock:
+        job = store.load(job_id)
+        clip = _caption_clip(job, clip_id)
+        transcript = json.loads((store.folder(job_id) / "transcript.json").read_text())
+        validate_caption_edit(changes, {w["ref"] for w in episode_words(transcript)})
+        before = json.dumps(caption_settings(clip), sort_keys=True)
+        captions = clip.setdefault("captions", {})
+        if "mode" in changes:
+            captions["mode"] = changes["mode"]
+        for key in ("hidden", "emphasis"):
+            overrides = captions.setdefault("edits", {}).setdefault(key, {})
+            for ref, value in changes.get(key, {}).items():
+                if value is None:
+                    overrides.pop(ref, None)
+                else:
+                    overrides[ref] = value
+        if "hook" in changes:
+            hook = captions.setdefault("hook", {"enabled": False, "text": None})
+            if "enabled" in changes["hook"]:
+                hook["enabled"] = changes["hook"]["enabled"]
+            if "text" in changes["hook"]:
+                hook["text"] = (changes["hook"]["text"] or "").strip() or None
+        changed = json.dumps(caption_settings(clip), sort_keys=True) != before
+        job.setdefault("feedback", []).append({"at": now(), "clip_id": clip_id, "captions": changes})
+        if changed:
+            clip["revision"] += 1
+            clip["export"] = None
+        job.update(status="ready", error=None, message="Captions saved; export again" if changed else "Captions unchanged")
+        store.save(job)
+        return job
+
+
+def suggest_caption_emphasis(store, job_id, clip_id=None, provider=None):
+    """Ask the selected provider for emphasis words on existing clips (cached per request)."""
+    job = store.load(job_id)
+    if job["status"] not in ("ready", "complete", "failed") or not job["clips"]:
+        raise ValueError("Analyze an episode before suggesting caption emphasis")
+    selected = [c for c in job["clips"] if c["decision"] != "rejected" and (not clip_id or c["id"] == clip_id)]
+    if not selected:
+        raise ValueError("No selected clips for caption emphasis")
+    folder = store.folder(job_id)
+    transcript = json.loads((folder / "transcript.json").read_text())
+    provider = provider or CLIProvider(job["options"].get("provider", "codex"), job["options"].get("model"))
+    store.event(job, "captioning", "Choosing caption emphasis")
+    results = _emphasis(transcript, selected, CachedProvider(provider, folder / "analysis-cache"))
+    changed = sum(_set_emphasis(clip, suggestion) for clip, suggestion in results)
+    errors = [s["error"] for _, s in results if s["error"]]
+    job["error"] = None
+    store.event(job, "ready", ("Caption emphasis unavailable: " + errors[0]) if errors else
+                "Caption emphasis updated; export again" if changed else "Caption emphasis unchanged")
+    return job

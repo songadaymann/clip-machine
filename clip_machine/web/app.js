@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = {config: null, job: null, selected: null, transcript: null, energy: null, previewExport: true, player: null, playingClip: false, loadingAssets: null, framingKey: null, framingScene: 0};
+const state = {config: null, job: null, selected: null, transcript: null, energy: null, previewExport: true, player: null, playingClip: false, loadingAssets: null, framingKey: null, framingScene: 0, captions: null, captionsKey: null};
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
 const time = seconds => { const whole = Math.floor(seconds); const mins = Math.floor(whole / 60); const secs = whole % 60; return `${mins}:${String(secs).padStart(2, '0')}`; };
 const preciseTime = seconds => `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(2).padStart(5, '0')}`;
@@ -83,6 +83,7 @@ function renderClip(force = false) {
   $('scores').title = 'Editorial ranking, not viral probability. 35% hook + 35% flow + 30% value. Trend is not evaluated.';
   $('context-note').textContent = c.context_note + ' Trend is not evaluated.';
   $('edited-note').hidden = c.start === c.original_start && c.end === c.original_end;
+  $('style-note').hidden = !c.export?.burn_captions || c.export.caption_style === state.config.caption_style;
   if (force || !['trim-start', 'trim-end'].includes(document.activeElement?.id)) {
     $('trim-start').value = preciseTime(c.start); $('trim-end').value = preciseTime(c.end);
   }
@@ -116,6 +117,7 @@ function renderClip(force = false) {
   }
   if ((changed || force) && !useExport) seek(c.start);
   renderFraming(force);
+  loadCaptions().catch(showError);
   if (force) { renderTranscript(); drawWaveform(); }
 }
 function seek(seconds, play = false) {
@@ -252,3 +254,55 @@ $('region-rows').addEventListener('input', drawRegions);
 $('region-rows').addEventListener('click', event => { if (event.target.closest('[data-remove-region]')) { event.target.closest('tr').remove(); drawRegions(); } });
 $('add-region').addEventListener('click', () => { if (readRegions().length >= 8) return showError(new Error('Use up to eight regions.')); $('region-rows').insertAdjacentHTML('beforeend', regionRow({id: `region_${Date.now()}`, label: 'Person', kind: 'person', rect: [.1,.1,.3,.4]})); drawRegions(); });
 $('regions-form').addEventListener('submit', event => { event.preventDefault(); safely(async () => { await mutate('framing', {clip_id: state.selected, policy: $('framing-policy').value, regions: readRegions()}); renderFraming(true); }); });
+
+
+const captionKey = () => { const c = clip(); return c ? `${state.job.id}:${c.id}:${c.revision}` : null; };
+async function loadCaptions(force = false) {
+  const c = clip(), key = captionKey();
+  if (!c || !$('captions-panel').open) return;
+  if (!force && key === state.captionsKey) { renderCaptions(); return; }
+  state.captionsKey = key;
+  const data = await api(`/api/jobs/${state.job.id}/captions/${c.id}`);
+  if (captionKey() !== key) return;
+  state.captions = data;
+  renderCaptions();
+}
+const wordState = w => w.hidden ? 'hidden' : w.emphasis ? 'emphasis' : 'shown';
+function renderCaptions() {
+  const data = state.captions, c = clip();
+  if (!data || !c || data.clip_id !== c.id) return;
+  $('caption-clean').checked = data.mode === 'clean';
+  $('hook-enabled').checked = data.hook.enabled;
+  if (document.activeElement !== $('hook-text')) $('hook-text').value = data.hook.text || '';
+  const suggestion = data.emphasis_suggestion, notes = [];
+  if (data.timing === 'segment') notes.push('This transcript has no word times, so each caption is a whole segment without word highlighting.');
+  if (!suggestion) notes.push('No emphasis suggested yet.');
+  else if (suggestion.error) notes.push(`Emphasis suggestion failed: ${suggestion.error}`);
+  else notes.push(`${suggestion.refs.length} emphasis ${suggestion.refs.length === 1 ? 'word' : 'words'} suggested by ${suggestion.source === 'demo-fixture' ? 'the sample fixture (not a model)' : suggestion.source}.`);
+  if (data.emphasis_error) notes.push(`The last request failed: ${data.emphasis_error}`);
+  if (!c.export) notes.push('Changes apply on the next export.');
+  $('captions-note').textContent = notes.join(' ');
+  let html = '';
+  data.words.forEach((w, i) => {
+    if (i === 0 || w.chunk_start) html += `${i ? '</div>' : ''}<div class="caption-line">`;
+    const why = w.hidden ? (w.manual_hidden ? 'hidden by you' : `hidden: ${w.rule}`) : w.emphasis ? (w.manual_emphasis ? 'emphasized by you' : 'emphasis suggested') : w.manual_hidden === false ? 'shown by you' : 'shown';
+    html += `<button type="button" class="caption-word ${wordState(w)}" data-ref="${escape(w.ref)}" aria-label="${escape(w.text)}, ${why}" title="${escape(why)}">${escape(w.text)}</button>`;
+  });
+  $('caption-lines').innerHTML = data.words.length ? html + '</div>' : '<p class="note">No speech in this clip.</p>';
+  for (const control of $('captions-panel').querySelectorAll('button,input')) control.disabled = busy();
+}
+// The saved edit bumps the clip revision; renderClip then reloads the caption plan.
+const editCaptions = changes => mutate('captions', {clip_id: state.selected, changes});
+$('captions-panel').addEventListener('toggle', () => loadCaptions().catch(showError));
+$('caption-lines').addEventListener('click', event => {
+  const button = event.target.closest('[data-ref]'); if (!button || !state.captions) return;
+  const w = state.captions.words.find(word => word.ref === button.dataset.ref), clean = state.captions.mode === 'clean';
+  const next = {shown: 'emphasis', emphasis: clean ? 'hidden' : 'shown', hidden: 'shown'}[wordState(w)];
+  // Store only differences from the suggestions, so clearing an override restores them.
+  const hidden = next === 'hidden', emphasis = next === 'emphasis';
+  const suggestedHidden = clean && Boolean(w.rule), suggestedEmphasis = w.suggested_emphasis;
+  safely(() => editCaptions({hidden: {[w.ref]: hidden === suggestedHidden ? null : hidden}, emphasis: {[w.ref]: emphasis === suggestedEmphasis ? null : emphasis}}));
+});
+$('caption-clean').addEventListener('change', () => safely(() => editCaptions({mode: $('caption-clean').checked ? 'clean' : 'verbatim'})));
+$('hook-form').addEventListener('submit', event => { event.preventDefault(); safely(() => editCaptions({hook: {enabled: $('hook-enabled').checked, text: $('hook-text').value}})); });
+$('suggest-emphasis').addEventListener('click', () => safely(() => mutate('emphasis', {clip_id: state.selected})));

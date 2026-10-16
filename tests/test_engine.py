@@ -11,10 +11,11 @@ import wave
 from pathlib import Path
 from unittest.mock import patch
 
-from clip_machine.engine import analyze_job, create_job, edit_clip, export_job
+from clip_machine.engine import (analyze_job, caption_preview, create_job, edit_captions, edit_clip, export_job,
+                                 suggest_caption_emphasis)
 from clip_machine.media import energy_features, probe, run
 from clip_machine.providers import CLIProvider, CachedProvider, parse_json
-from clip_machine.render import caption_cues, write_captions
+from clip_machine.captions import caption_plan, write_caption_files
 from clip_machine.selection import deduplicate, select_clips, validate_options
 from clip_machine.server import ReviewServer
 from clip_machine.storage import JobStore, write_json
@@ -33,6 +34,9 @@ class FixtureProvider:
         self.calls += 1
         if "summary" in schema["properties"]:
             return {"summary": "A complete fictional story.", "caveats": "Preserve the ending."}
+        if "clips" in schema["properties"]:
+            clips = json.loads(prompt.split("Clips (data): ", 1)[1])
+            return {"clips": [{"id": c["id"], "words": [c["words"][-1]["id"]]} for c in clips]}
         if "reviews" in schema["properties"]:
             import re
             identities = list(dict.fromkeys(re.findall(r'"id": "([a-f0-9]{12})"', prompt)))
@@ -130,12 +134,12 @@ class LogicTests(unittest.TestCase):
     def test_captions_are_relative_to_manual_trim_and_escape_ass_instructions(self):
         normalized = normalize(transcript(), 12)
         normalized["segments"][0]["text"] = r"{\pos(0,0)} <script>"
-        cues = caption_cues(normalized["segments"], 1.25, 4.5)
-        self.assertEqual(cues[0]["start"], 0)
-        self.assertEqual(cues[-1]["end"], 3.25)
+        plan = caption_plan(normalized, {"start": 1.25, "end": 4.5, "title": "Trimmed"})
+        self.assertEqual(plan["chunks"][0]["start"], 0)
+        self.assertEqual(plan["chunks"][-1]["end"], 3.25)
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
-            write_captions(folder, cues)
+            write_caption_files(folder, plan)
             self.assertNotIn(r"{\pos", (folder / "captions.ass").read_text())
             self.assertIn("&lt;script&gt;", (folder / "captions.vtt").read_text())
 
@@ -292,6 +296,55 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "source file changed"):
             export_job(self.store, job["id"])
 
+    def test_analysis_stores_emphasis_and_caption_edits_layer_without_touching_transcript(self):
+        job = self.analyze("portrait")
+        c = job["clips"][0]
+        self.assertEqual(c["revision"], 1)
+        suggestion = c["captions"]["emphasis_suggestion"]
+        self.assertEqual((suggestion["source"], suggestion["error"], len(suggestion["refs"])), ("test-fixture", None, 1))
+        transcript_file = self.store.folder(job["id"]) / "transcript.json"
+        before = transcript_file.read_bytes()
+        preview = caption_preview(self.store, job["id"], c["id"])
+        first = preview["words"][0]["ref"]
+        job = export_job(self.store, job["id"])
+        self.assertEqual(job["clips"][0]["export"]["caption_style"], "pop-v1")
+        job = edit_captions(self.store, job["id"], c["id"], {"hidden": {first: True}, "hook": {"enabled": True, "text": " Setup "}})
+        edited = job["clips"][0]
+        self.assertEqual((edited["revision"], edited["export"]), (2, None))
+        self.assertEqual(edited["captions"]["hook"], {"enabled": True, "text": "Setup"})
+        self.assertEqual(job["feedback"][-1]["captions"]["hidden"], {first: True})
+        self.assertEqual(transcript_file.read_bytes(), before)
+        unchanged = edit_captions(self.store, job["id"], c["id"], {"hidden": {first: True}})
+        self.assertEqual(unchanged["clips"][0]["revision"], 2)
+        # Overrides reference source words, so they survive a trim.
+        trimmed = edit_clip(self.store, job["id"], c["id"], 0.5, 5.5)
+        words = caption_preview(self.store, job["id"], c["id"])["words"]
+        self.assertTrue(next(w for w in words if w["ref"] == first)["hidden"])
+        self.assertEqual(trimmed["clips"][0]["revision"], 3)
+        with self.assertRaisesRegex(ValueError, "Unknown caption word"):
+            edit_captions(self.store, job["id"], c["id"], {"emphasis": {"s999999:0": True}})
+        exported = export_job(self.store, job["id"])["clips"][0]["export"]
+        srt = (self.store.folder(job["id"]) / exported["srt"]).read_text()
+        self.assertNotIn("Here ", srt)
+        self.assertIn("SETUP", (self.store.folder(job["id"]) / exported["ass"]).read_text())
+
+    def test_failed_emphasis_request_keeps_previous_suggestion(self):
+        job = self.analyze()
+        c = job["clips"][0]
+
+        class Failing(FixtureProvider):
+            name = "failing-fixture"  # A different provider misses the cached success.
+
+            def complete(self, prompt, schema):
+                raise RuntimeError("fixture quota reached")
+
+        job = suggest_caption_emphasis(self.store, job["id"], c["id"], Failing())
+        captions = job["clips"][0]["captions"]
+        self.assertEqual(captions["emphasis_suggestion"], c["captions"]["emphasis_suggestion"])
+        self.assertEqual(captions["emphasis_error"], "fixture quota reached")
+        self.assertEqual(job["clips"][0]["revision"], 1)
+        self.assertIn("Caption emphasis unavailable", job["message"])
+
     def test_rejected_clips_are_not_exported(self):
         job = self.analyze()
         edit_clip(self.store, job["id"], job["clips"][0]["id"], decision="rejected")
@@ -320,6 +373,17 @@ class PipelineTests(unittest.TestCase):
             request = urllib.request.Request(base + "/api/jobs/" + job["id"] + "/edit", data=json.dumps({"clip_id": job["clips"][0]["id"], "decision": "approved"}).encode(), headers={"Content-Type": "application/json", "X-Clip-Token": server.token})
             with urllib.request.urlopen(request) as response:
                 self.assertEqual(json.load(response)["clips"][0]["decision"], "approved")
+            clip_id = job["clips"][0]["id"]
+            with urllib.request.urlopen(base + "/api/jobs/" + job["id"] + "/captions/" + clip_id) as response:
+                preview = json.load(response)
+            self.assertEqual(preview["mode"], "clean")
+            change = json.dumps({"clip_id": clip_id, "changes": {"mode": "verbatim"}}).encode()
+            request = urllib.request.Request(base + "/api/jobs/" + job["id"] + "/captions", data=change, headers={"Content-Type": "application/json", "X-Clip-Token": server.token})
+            with urllib.request.urlopen(request) as response:
+                self.assertEqual(json.load(response)["clips"][0]["captions"]["mode"], "verbatim")
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(urllib.request.Request(base + "/api/jobs/" + job["id"] + "/captions", data=change, headers={"Content-Type": "application/json"}))
+            self.assertEqual(error.exception.code, 403)
             with self.assertRaises(urllib.error.HTTPError):
                 urllib.request.urlopen(base + "/api/jobs/" + job["id"] + "/files/job.json")
             with self.assertRaises(ValueError):

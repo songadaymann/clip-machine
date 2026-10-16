@@ -37,3 +37,11 @@ one audio track, framing failure recovery, manual edits and private image access
 Reframed and exported the first real episode clip; the app offers Reframe all for
 remaining clips. Speaker activity remains a conservative heuristic; sampled
 framing cannot recover source occlusions or guarantee unseen scene changes.
+
+## Caption upgrade
+
+- [x] Agree the style: Archivo Condensed Black caps, #F6020C highlight, clean by default.
+- [x] Deletion-only cleanup, balanced phrasing and word highlighting from word times.
+- [x] Model-suggested emphasis with manual word toggles, verbatim mode and hook title.
+- [x] Plan-aware placement inside platform-safe areas; bundle the OFL font.
+- [x] Tests, docs and a real-clip render.

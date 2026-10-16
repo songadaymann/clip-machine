@@ -10,8 +10,14 @@ The demo generator creates synthetic tones and test-pattern video locally.
 
 ## 2. Free third-party: included under their own licenses
 
-No third-party assets are bundled. System fonts are used. FFmpeg, the transcription model and provider CLIs
-are separately installed tools; no binaries or model weights are redistributed.
+- `clip_machine/fonts/ArchivoCondensed-Black.ttf`: Archivo Condensed Black,
+  copyright 2020 The Archivo Project Authors, from
+  [Omnibus-Type/Archivo](https://github.com/Omnibus-Type/Archivo) (`fonts/ttf/`,
+  downloaded 2026-10-16). [SIL Open Font License 1.1](clip_machine/fonts/OFL.txt).
+  Used for burned-in captions, matching the podcast site's condensed caps.
+
+FFmpeg, the transcription model and provider CLIs are separately installed tools;
+no binaries or model weights are redistributed.
 
 ## 3. Licensed (paid or restricted): not included
 

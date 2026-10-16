@@ -55,6 +55,7 @@
           <div id="scores" class="scores"></div>
           <p class="note" id="context-note"></p>
           <p class="note" id="edited-note" hidden>Edited cut. The score and context check apply to the original suggestion.</p>
+          <p class="note" id="style-note" hidden>This export uses the previous caption style. Export again to update it.</p>
           <form id="trim-form" class="trim-form"><label class="field">Start<input id="trim-start" type="text" inputmode="decimal" aria-label="Clip start in minutes and seconds" required></label><label class="field">End<input id="trim-end" type="text" inputmode="decimal" aria-label="Clip end in minutes and seconds" required></label><button type="submit">Save trim</button><button type="button" class="quiet" id="play-clip">Play clip <span aria-hidden="true">▶</span></button></form>
           <div class="clip-actions"><button id="approve">Keep clip</button><button id="reject" class="quiet">Reject</button><button id="export-clip" class="primary">Export clip ↓</button><span id="downloads"></span></div>
           <details id="framing-panel" class="framing-panel"><summary>Framing & layout</summary>
@@ -62,6 +63,13 @@
             <div class="framing-actions"><label class="field">Layout<select id="framing-policy"><option value="auto">Automatic</option><option value="gameplay_people">Game + people</option><option value="two_people">Both people</option><option value="group">Everyone</option><option value="speaker">Speaker focus</option><option value="full_frame">Full source</option></select></label><button id="frame-clip" type="button">Analyze & re-export</button></div>
             <div id="framing-proof" hidden><div><p class="note">Source regions · <select id="framing-scene" aria-label="Framing scene"></select></p><div class="source-regions"><img id="framing-source" alt="Uncropped source frame"><svg id="region-overlay" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-label="Selected source regions"></svg></div></div><div><p class="note">Composition preview · first scene</p><img id="framing-preview" alt="Vertical composition preview"></div></div>
             <form id="regions-form" hidden><p class="note">Adjust source regions as percentages of the full image. Saving applies these regions to the whole clip.</p><div class="region-scroll"><table><thead><tr><th>Region</th><th>Type</th><th>Left %</th><th>Top %</th><th>Width %</th><th>Height %</th><th></th></tr></thead><tbody id="region-rows"></tbody></table></div><div class="framing-actions"><button id="add-region" type="button" class="quiet">Add region</button><button type="submit">Save regions</button></div></form>
+          </details>
+          <details id="captions-panel" class="captions-panel"><summary>Captions</summary>
+            <p id="captions-note" class="note"></p>
+            <div class="caption-options"><label class="check"><input id="caption-clean" type="checkbox"> Clean up filler and restarts</label><button id="suggest-emphasis" type="button" class="quiet">Suggest emphasis</button></div>
+            <form id="hook-form" class="hook-form"><label class="check"><input id="hook-enabled" type="checkbox"> Hook title for the first 2.5s</label><label class="field">Hook title<input id="hook-text" maxlength="120"></label><button type="submit">Save hook</button></form>
+            <p class="note">Click a word to cycle shown → emphasized → hidden. Each line is one caption. The audio is never edited.</p>
+            <div id="caption-lines"></div>
           </details>
           <div class="episode-timeline"><div class="list-heading"><h2>In the episode</h2><span id="episode-duration"></span></div><svg id="waveform" viewBox="0 0 900 64" role="img" aria-label="Audio energy and selected clip in the episode" tabindex="0"></svg></div>
           <details id="transcript-panel" class="transcript-panel"><summary>Transcript & boundaries</summary><div id="transcript"></div></details>
